@@ -65,7 +65,7 @@ func (r *Raft) IsLeader() bool {
 }
 
 func (r *Raft) Leader() paxi.ID {
-	return r.Node.ID()
+	return leaderID
 }
 
 func (r *Raft) CurrentTerm() int {
@@ -90,6 +90,7 @@ func (r *Raft) sendHeartbeats(){
 func (r *Raft)RunLeader(){
 	log.Debugf("node %s is Leader",r.ID())
 	r.role = Leader
+	leaderID = r.ID()
 	ids := config.IDs()
 	for _,peerId := range ids{
 		r.nextIndex[peerId] = len(r.log)
@@ -342,9 +343,9 @@ func (r *Raft)HandleAppendEntryReply(reply AppendEntryReply){
 				r.quorum.Reset()
 				//commit
 				r.commitIndex = reply.PrevLogIndex + 1
-				log.Debugf("commit前")
+				//log.Debugf("commit前")
 				value := r.Execute(r.log[r.commitIndex].Command)
-				log.Debugf("commited. log:%v",r.log)
+				log.Debugf("commited:%v",r.log[r.commitIndex].Command)
 				if r.requestList[r.commitIndex]!=nil{
 					rep := paxi.Reply{
 						Command:r.log[r.commitIndex].Command,
