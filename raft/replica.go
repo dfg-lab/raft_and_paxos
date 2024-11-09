@@ -36,7 +36,7 @@ func(r *Replica)Run(){
 }
 
 func (r *Replica) handleRequest(m paxi.Request) {
-	log.Debugf("Replica % received %v\n", r.ID(), m)
+	log.Debugf("Replica %s received %v\n", r.ID(), m)
 
 	if r.Raft.IsLeader(){
 		r.Raft.HandleRequest(m)

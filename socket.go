@@ -4,8 +4,10 @@ import (
 	"math/rand"
 	"sync"
 	"time"
+	"reflect"
 
 	"github.com/ailidani/paxi/log"
+	
 )
 
 // Socket integrates all networking interface and fault injections
@@ -67,7 +69,23 @@ func NewSocket(id ID, addrs map[ID]string) Socket {
 }
 
 func (s *socket) Send(to ID, m interface{}) {
-	log.Debugf("node %s send message %+v to %v", s.id, m, to)
+	v := reflect.ValueOf(m)
+
+	if v.Kind() == reflect.Struct {
+        // フィールドを調べてnilかどうか確認
+        field := v.FieldByName("Entries")
+		IsHeartBeat := v.FieldByName("IsHeartBeat")
+        if field.IsValid()&&field.Len()!=0 {
+			log.Debugf("node %s send message %+v to %v", s.id, m, to)
+        } else if IsHeartBeat.IsValid()&& !IsHeartBeat.Bool(){
+			log.Debugf("node %s send message %+v to %v", s.id, m, to)
+		} else if !field.IsValid() &&!IsHeartBeat.IsValid(){
+			log.Debugf("node %s send message %+v to %v", s.id, m, to)
+		}
+
+    }else{
+		log.Debugf("node %s send message %+v to %v", s.id, m, to)
+	}
 
 	if s.crash {
 		return
