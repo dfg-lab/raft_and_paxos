@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"time"
 )
 
 // History client operation history mapped by key
@@ -72,8 +73,11 @@ func (h *History) Linearizable() int {
 
 // WriteFile writes entire operation history into file
 func (h *History) WriteFile(path string) error {
-	file, err := os.Create(path + ".csv")
+	now := time.Now()
+	time := now.Format("2006-01-02 15:04:05")
+	file, err := os.Create(path + "(" + time +").csv")
 	if err != nil {
+		fmt.Println(err)
 		return err
 	}
 	defer file.Close()
@@ -87,6 +91,7 @@ func (h *History) WriteFile(path string) error {
 	latency := 0.0
 	throughput := 0
 	s := 1.0
+	fmt.Fprintf(w, "Input,Output,startTime(s),endTime(s)\n")
 	for _, o := range h.operations {
 		start := float64(o.start) / 1000000000.0
 		end := float64(o.end) / 1000000000.0

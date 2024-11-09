@@ -15,6 +15,7 @@ type DB interface {
 	Read(key int) (int, error)
 	Write(key, value int) error
 	Stop() error
+	Algorithm() string
 }
 
 // Bconfig holds all benchmark configuration
@@ -81,6 +82,7 @@ type Benchmark struct {
 	startTime time.Time
 	zipf      *rand.Zipf
 	counter   int
+	algorithm string
 
 	wait sync.WaitGroup // waiting for all generated keys to complete
 }
@@ -184,7 +186,9 @@ func (b *Benchmark) Run() {
 	log.Info(stat)
 
 	stat.WriteFile("latency")
-	b.History.WriteFile("history")
+
+	algorithm := b.db.Algorithm()
+	b.History.WriteFile("history_" + algorithm)
 
 	if b.LinearizabilityCheck {
 		n := b.History.Linearizable()

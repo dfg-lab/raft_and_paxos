@@ -17,6 +17,7 @@ var master = flag.String("master", "", "Master address.")
 // db implements Paxi.DB interface for benchmarking
 type db struct {
 	paxi.Client
+	algorithm string
 }
 
 func (d *db) Init() error {
@@ -43,6 +44,10 @@ func (d *db) Write(k, v int) error {
 	binary.PutUvarint(value, uint64(v))
 	err := d.Put(key, value)
 	return err
+}
+
+func (d *db)Algorithm() string{
+	return *algorithm
 }
 
 func main() {
