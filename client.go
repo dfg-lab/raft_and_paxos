@@ -122,7 +122,7 @@ func (c *HTTPClient) rest(id ID, key Key, value Value) (Value, map[string]string
 
 	rep, err := c.Client.Do(req)
 	if err != nil {
-		log.Error(err)
+		//log.Error(err)
 		return nil, nil, err
 	}
 	defer rep.Body.Close()

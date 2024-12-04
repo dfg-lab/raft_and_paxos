@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ailidani/paxi"
+	"github.com/ailidani/paxi/log"
 )
 
 // entry in log
@@ -203,6 +204,7 @@ func (p *Paxos) HandleP1b(m P1b) {
 		p.quorum.ACK(m.ID)
 		if p.Q1(p.quorum) {
 			p.active = true
+			log.Debugf("Replica %s is new Leader\n", p.ID())
 			// propose any uncommitted entries
 			for i := p.execute; i <= p.slot; i++ {
 				// TODO nil gap?

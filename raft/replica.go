@@ -36,11 +36,16 @@ func(r *Replica)Run(){
 }
 
 func (r *Replica) handleRequest(m paxi.Request) {
-	log.Debugf("Replica %s received %v\n", r.ID(), m)
+	//log.Debugf("Replica %s received %v\n", r.ID(), m)
 
+	if m.Command.Key == -1{
+		r.Raft.handleCrash(m)
+		return
+	}
 	if r.Raft.IsLeader(){
 		r.Raft.HandleRequest(m)
 	} else {
+		log.Debugf("Replica %s forward %v\n", r.ID(), m)
 		go r.Forward(r.Raft.Leader(), m)
 	}
 }

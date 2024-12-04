@@ -74,15 +74,14 @@ func (s *socket) Send(to ID, m interface{}) {
 	if v.Kind() == reflect.Struct {
         // フィールドを調べてnilかどうか確認
         field := v.FieldByName("Entries")
-		IsHeartBeat := v.FieldByName("IsHeartBeat")
+		NumEntries := v.FieldByName("NumEntries")
         if field.IsValid()&&field.Len()!=0 {
 			log.Debugf("node %s send message %+v to %v", s.id, m, to)
-        } else if IsHeartBeat.IsValid()&& !IsHeartBeat.Bool(){
+        } else if NumEntries.IsValid()&& NumEntries.Int()!=0{
 			log.Debugf("node %s send message %+v to %v", s.id, m, to)
-		} else if !field.IsValid() &&!IsHeartBeat.IsValid(){
+		} else if !field.IsValid() &&!NumEntries.IsValid(){
 			log.Debugf("node %s send message %+v to %v", s.id, m, to)
 		}
-
     }else{
 		log.Debugf("node %s send message %+v to %v", s.id, m, to)
 	}
@@ -218,6 +217,7 @@ func (s *socket) Flaky(id ID, p float64, t int) {
 
 func (s *socket) Crash(t int) {
 	s.crash = true
+	log.Debugf("node %s Crash", s.id)
 	if t > 0 {
 		timer := time.NewTimer(time.Duration(t) * time.Second)
 		go func() {

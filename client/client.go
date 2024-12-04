@@ -4,9 +4,11 @@ import (
 	"encoding/binary"
 	"flag"
 
+
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/chain"
 	"github.com/ailidani/paxi/paxos"
+
 )
 
 var id = flag.String("id", "", "node id this client connects to")
@@ -72,5 +74,25 @@ func main() {
 		b.Load()
 	} else {
 		b.Run()
+	// 	var wg sync.WaitGroup
+	// 	wg.Add(1)
+
+	// 	go func(){
+	// 		defer wg.Done()
+	// 		b.Run()
+	// 	}()
+
+	// 	crashTimer := time.NewTimer(time.Second*5)
+	// 	select{
+	// 	case <- crashTimer.C:
+	// 		if adminClient, ok := d.Client.(paxi.AdminClient); ok {
+	// 			//adminClient.Crash("1.2", 2)
+	// 			log.Debugf("%v",adminClient)
+	// 		} else {
+	// 			log.Debugf("Client does not support admin operations")
+	// 		}
+			
+	// 	}
+	// 	wg.Wait()
 	}
 }

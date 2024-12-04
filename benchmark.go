@@ -5,6 +5,9 @@ import (
 	"math/rand"
 	"sync"
 	"time"
+	"fmt"
+	"strconv"
+
 
 	"github.com/ailidani/paxi/log"
 )
@@ -46,6 +49,9 @@ type Bconfig struct {
 
 	// exponential distribution
 	Lambda float64 // rate parameter
+
+	FaultyNode []ID
+	CrashTime int
 }
 
 // DefaultBConfig returns a default benchmark config
@@ -68,6 +74,8 @@ func DefaultBConfig() Bconfig {
 		ZipfianS:             2,
 		ZipfianV:             1,
 		Lambda:               0.01,
+		FaultyNode:			  []ID{},
+		CrashTime:			  0,
 	}
 }
 
@@ -99,6 +107,7 @@ func NewBenchmark(db DB) *Benchmark {
 	rand.Seed(time.Now().UTC().UnixNano())
 	r := rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
 	b.zipf = rand.NewZipf(r, b.ZipfianS, b.ZipfianV, uint64(b.K))
+	log.Infof("Loaded config: %+v", config.Benchmark)
 	return b
 }
 
@@ -135,6 +144,8 @@ func (b *Benchmark) Load() {
 
 // Run starts the main logic of benchmarking
 func (b *Benchmark) Run() {
+	admin := NewHTTPClient(ID("1.1"))
+
 	var stop chan bool
 	if b.Move {
 		move := func() { b.Mu = float64(int(b.Mu+1) % b.K) }
@@ -152,29 +163,73 @@ func (b *Benchmark) Run() {
 		go b.worker(keys, latencies)
 	}
 
+	algorithm := b.db.Algorithm()
 	b.db.Init()
 	b.startTime = time.Now()
 	if b.T > 0 {
 		timer := time.NewTimer(time.Second * time.Duration(b.T))
+		crashTimer := time.NewTimer(time.Second * time.Duration(b.T/2))
+		interval := time.Second / time.Duration(b.N)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
 	loop:
 		for {
 			select {
 			case <-timer.C:
 				break loop
-			default:
+			case <-ticker.C:
 				b.wait.Add(1)
 				keys <- b.next()
+			case <-crashTimer.C:
+				for _,faultyNode := range b.FaultyNode{
+					go func(faultyNode ID){
+						b.wait.Add(1)
+						keys <- -1
+						if algorithm == "raft"{
+							crashClient:= NewHTTPClient(ID(faultyNode))
+							crashClient.Put(Key(-1), []byte(strconv.Itoa(b.CrashTime)))
+						}
+						admin.Crash(faultyNode,b.CrashTime)
+						sleepTime := time.Duration(b.CrashTime) * time.Second
+						time.Sleep(sleepTime)
+						b.wait.Add(1)
+						keys <- -2
+					}(faultyNode)
+				}
 			}
 		}
 	} else {
 		for i := 0; i < b.N; i++ {
 			b.wait.Add(1)
 			keys <- b.next()
+			if i== b.N/2{
+				for _,faultyNode := range b.FaultyNode{
+					go func(faultyNode ID){
+						b.wait.Add(1)
+						keys <- -1
+						if algorithm == "raft"{
+							crashClient:= NewHTTPClient(ID(faultyNode))
+							crashClient.Put(Key(-1), []byte(strconv.Itoa(b.CrashTime)))
+						}
+						admin.Crash(faultyNode,b.CrashTime)
+						sleepTime := time.Duration(b.CrashTime) * time.Second
+						time.Sleep(sleepTime)
+						b.wait.Add(1)
+						keys <- -2
+					}(faultyNode)
+				}
+			}
 		}
 		b.wait.Wait()
 	}
 	t := time.Now().Sub(b.startTime)
 
+	for i:=0;i<b.K;i++{
+		if !admin.Consensus(Key(i)){
+			fmt.Printf("No consensus on key = %d\n",i)
+			break
+		}
+	}
 	b.db.Stop()
 	close(keys)
 	stat := Statistic(b.latency)
@@ -187,8 +242,13 @@ func (b *Benchmark) Run() {
 
 	stat.WriteFile("latency")
 
-	algorithm := b.db.Algorithm()
-	b.History.WriteFile("history_" + algorithm)
+	W:=b.W
+	N:=b.N
+	K:=b.K
+	T:=b.T
+	node := config.n
+	faultyNode := len(b.FaultyNode) 
+	b.History.WriteFile(algorithm,T,N,K,W,node,faultyNode)
 
 	if b.LinearizabilityCheck {
 		n := b.History.Linearizable()
@@ -254,6 +314,11 @@ func (b *Benchmark) worker(keys <-chan int, result chan<- time.Duration) {
 	var err error
 	for k := range keys {
 		op := new(operation)
+		if k == -1{
+			op.crash = "node"  + " has crashed "
+		}else if k == -2{
+			op.crash = "node" + " has returned "
+		}
 		if rand.Float64() < b.W {
 			v = rand.Int()
 			s = time.Now()
@@ -272,7 +337,7 @@ func (b *Benchmark) worker(keys <-chan int, result chan<- time.Duration) {
 			result <- e.Sub(s)
 		} else {
 			op.end = math.MaxInt64
-			log.Error(err)
+		//	log.Error(err)
 		}
 		b.History.AddOperation(k, op)
 	}

@@ -41,8 +41,9 @@ func NewReplica(id paxi.ID) *Replica {
 
 func (r *Replica) handleRequest(m paxi.Request) {
 	log.Debugf("Replica %s received %v\n", r.ID(), m)
+	log.Debugf("Replica %s command %v\n", r.ID(), m.Command)
 
-	if m.Command.IsRead() && *read != "" {
+	if m.Command.IsRead(){
 		v, inProgress := r.readInProgress(m)
 		reply := paxi.Reply{
 			Command:    m.Command,

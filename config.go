@@ -104,6 +104,7 @@ func (c *Config) Load() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	log.Infof("Loaded config at config.go: %+v", c.Benchmark)
 
 	c.npz = make(map[int]int)
 	for id := range c.Addrs {

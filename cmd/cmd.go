@@ -72,6 +72,10 @@ func run(cmd string, args []string) {
 			fmt.Println("second argument should be integer")
 			return
 		}
+		if *algorithm == "raft"{
+			crashClient:= paxi.NewHTTPClient(paxi.ID(id))
+			crashClient.Put(paxi.Key(-1), []byte(args[1]))
+		}
 		admin.Crash(id, time)
 
 	case "partition":

@@ -5,6 +5,7 @@ import "fmt"
 type operation struct {
 	input  interface{}
 	output interface{}
+	crash interface{}
 	// timestamps
 	start int64
 	end   int64

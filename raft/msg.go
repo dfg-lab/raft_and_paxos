@@ -17,8 +17,8 @@ func init() {
 type RequestVoteArgs struct{
 	Term int
 	CandidateId paxi.ID
-	LastLogIndex int
-	LastLogTerm int
+	LogLength int
+	LastEntryTerm int
 }
 
 type RequestVoteReply struct{
@@ -30,6 +30,7 @@ type RequestVoteReply struct{
 type LogEntry struct{
 	Term int
 	Command paxi.Command
+	Request *paxi.Request
 }
 
 type AppendEntryArgs struct{
@@ -45,8 +46,8 @@ type AppendEntryReply struct{
 	Term int
 	Success bool
 	ID paxi.ID
-	PrevLogIndex int
-	IsHeartBeat bool
+	LatestLogIndex int
+	NumEntries int
 }
 
 

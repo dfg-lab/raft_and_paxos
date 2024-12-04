@@ -1,34 +1,20 @@
 #!/usr/bin/env bash
 
-PID_FILE=server.pid
+#!/bin/bash
 
-if [ ! -f "${PID_FILE}" ]; then
-    echo "No server is running."
+# 3つのプロセスIDを引数として受け取る
+pid1="$1"
+pid2="$2"
+pid3="$3"
+
+# 各プロセスをkillする
+kill "$pid1"
+kill "$pid2"
+kill "$pid3"
+
+# 終了ステータスを確認
+if [ $? -eq 0 ]; then
+  echo "プロセスを正常に終了しました。"
 else
-	while read pid; do
-		if [ -z "${pid}" ]; then
-			echo "No server is running."
-		else
-			kill -15 "${pid}"
-			echo "Server with PID ${pid} shutdown."
-    	fi
-	done < "${PID_FILE}"
-	rm "${PID_FILE}"
-fi
-
-
-PID_FILE=master.pid
-
-if [ ! -f "${PID_FILE}" ]; then
-    echo "No master is running."
-else
-	while read pid; do
-		if [ -z "${pid}" ]; then
-			echo "No master is running."
-		else
-			kill -15 "${pid}"
-			echo "Master with PID ${pid} shutdown."
-    	fi
-	done < "${PID_FILE}"
-	rm "${PID_FILE}"
+  echo "プロセスの終了に失敗しました。"
 fi
