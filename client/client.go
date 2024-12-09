@@ -52,6 +52,10 @@ func (d *db)Algorithm() string{
 	return *algorithm
 }
 
+func (d *db)ClientID() string{
+	return *id
+}
+
 func main() {
 	paxi.Init()
 

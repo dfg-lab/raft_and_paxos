@@ -19,6 +19,7 @@ type DB interface {
 	Write(key, value int) error
 	Stop() error
 	Algorithm() string
+	ClientID() string
 }
 
 // Bconfig holds all benchmark configuration
@@ -246,9 +247,10 @@ func (b *Benchmark) Run() {
 	N:=b.N
 	K:=b.K
 	T:=b.T
+	ID := b.db.ClientID()
 	node := config.n
 	faultyNode := len(b.FaultyNode) 
-	b.History.WriteFile(algorithm,T,N,K,W,node,faultyNode)
+	b.History.WriteFile(algorithm,T,N,K,W,node,faultyNode,ID)
 
 	if b.LinearizabilityCheck {
 		n := b.History.Linearizable()

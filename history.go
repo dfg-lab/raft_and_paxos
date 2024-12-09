@@ -73,7 +73,7 @@ func (h *History) Linearizable() int {
 }
 
 // WriteFile writes entire operation history into file
-func (h *History) WriteFile(algorithm string,T int,N int,K int,W float64,node int,faultyNode int) error {
+func (h *History) WriteFile(algorithm string,T int,N int,K int,W float64,node int,faultyNode int,ID string) error {
 	now := time.Now()
 	yearMonthDay := now.Format("20060102")
 	folderPath := filepath.Join(".", yearMonthDay)
@@ -108,6 +108,7 @@ func (h *History) WriteFile(algorithm string,T int,N int,K int,W float64,node in
 	latency := 0.0
 	throughput := 0
 	//s := 1.0
+	fmt.Fprintf(w,"this client connects to %s\n",ID)
 	fmt.Fprintf(w, "Input,Output,startTime(s),endTime(s)\n")
 	for _, o := range h.operations {
 		if o.crash ==nil{
