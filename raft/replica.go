@@ -45,7 +45,7 @@ func (r *Replica) handleRequest(m paxi.Request) {
 	if r.Raft.IsLeader(){
 		r.Raft.HandleRequest(m)
 	} else {
-		log.Debugf("Replica %s forward %v\n", r.ID(), m)
+	//	log.Debugf("Replica %s forward %v\n", r.ID(), m)
 		go r.Forward(r.Raft.Leader(), m)
 	}
 }

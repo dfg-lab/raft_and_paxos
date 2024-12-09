@@ -316,7 +316,7 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 	defer r.mu.Unlock()
 	var reply AppendEntryReply
 	if m.Entries != nil{
-		log.Debugf("node %s received AppendEntryArgs %+v", r.ID(), m)
+		//log.Debugf("node %s received AppendEntryArgs %+v", r.ID(), m)
 		if r.checkConsistensy(m){
 			consistentLog := r.log[:m.PrevLogIndex+1]
 			r.log = append(consistentLog,m.Entries...)
@@ -513,8 +513,8 @@ func (r *Raft)HandleAppendEntryReply(reply AppendEntryReply){
 		// add r.currentterm < rep.currentterm
 		r.mu.Lock()
 		r.nextIndex[reply.ID] = reply.LatestLogIndex + 1
-		log.Debugf("nextIndex[%s]=%d",reply.ID,r.nextIndex[reply.ID])
-		log.Debugf("received:%+v",reply)
+		//log.Debugf("nextIndex[%s]=%d",reply.ID,r.nextIndex[reply.ID])
+		//log.Debugf("received:%+v",reply)
 		m := AppendEntryArgs{
 			Term:r.CurrentTerm(),
 			LeaderId:r.Leader(),

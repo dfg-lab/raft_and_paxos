@@ -76,14 +76,14 @@ func (s *socket) Send(to ID, m interface{}) {
         field := v.FieldByName("Entries")
 		NumEntries := v.FieldByName("NumEntries")
         if field.IsValid()&&field.Len()!=0 {
-			log.Debugf("node %s send message %+v to %v", s.id, m, to)
+			//log.Debugf("node %s send message %+v to %v", s.id, m, to)
         } else if NumEntries.IsValid()&& NumEntries.Int()!=0{
-			log.Debugf("node %s send message %+v to %v", s.id, m, to)
+			//log.Debugf("node %s send message %+v to %v", s.id, m, to)
 		} else if !field.IsValid() &&!NumEntries.IsValid(){
-			log.Debugf("node %s send message %+v to %v", s.id, m, to)
+		//	log.Debugf("node %s send message %+v to %v", s.id, m, to)
 		}
     }else{
-		log.Debugf("node %s send message %+v to %v", s.id, m, to)
+		//log.Debugf("node %s send message %+v to %v", s.id, m, to)
 	}
 
 	if s.crash {

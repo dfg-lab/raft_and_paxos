@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/ailidani/paxi"
-	"github.com/ailidani/paxi/log"
 )
 
 var ephemeralLeader = flag.Bool("ephemeral_leader", false, "unstable leader, if true paxos replica try to become leader instead of forward requests to current leader")
@@ -40,8 +39,8 @@ func NewReplica(id paxi.ID) *Replica {
 }
 
 func (r *Replica) handleRequest(m paxi.Request) {
-	log.Debugf("Replica %s received %v\n", r.ID(), m)
-	log.Debugf("Replica %s command %v\n", r.ID(), m.Command)
+	//log.Debugf("Replica %s received %v\n", r.ID(), m)
+	//log.Debugf("Replica %s command %v\n", r.ID(), m.Command)
 
 	if m.Command.IsRead(){
 		v, inProgress := r.readInProgress(m)

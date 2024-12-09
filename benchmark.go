@@ -120,7 +120,7 @@ func (b *Benchmark) Load() {
 	keys := make(chan int, b.Concurrency)
 	latencies := make(chan time.Duration, 1000)
 	defer close(latencies)
-	go b.collect(latencies)
+	//go b.collect(latencies)
 
 	b.startTime = time.Now()
 	for i := 0; i < b.Concurrency; i++ {
@@ -130,16 +130,16 @@ func (b *Benchmark) Load() {
 		b.wait.Add(1)
 		keys <- i
 	}
-	t := time.Now().Sub(b.startTime)
+	//t := time.Now().Sub(b.startTime)
 
 	b.db.Stop()
 	close(keys)
 	b.wait.Wait()
-	stat := Statistic(b.latency)
+	//stat := Statistic(b.latency)
 
-	log.Infof("Benchmark took %v\n", t)
-	log.Infof("Throughput %f\n", float64(len(b.latency))/t.Seconds())
-	log.Info(stat)
+	// log.Infof("Benchmark took %v\n", t)
+	// log.Infof("Throughput %f\n", float64(len(b.latency))/t.Seconds())
+	// log.Info(stat)
 }
 
 // Run starts the main logic of benchmarking
