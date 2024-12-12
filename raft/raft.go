@@ -164,7 +164,7 @@ func (r *Raft)RunLeader(){
 func (r *Raft)runElectionTimer(){
 	timeoutDuration := time.Duration(150+rand.Intn(150)) * time.Millisecond
 	if r.currentTerm == 0 && r.ID() != "1.1"{
-		timeoutDuration = time.Duration(500) * time.Millisecond
+		timeoutDuration = time.Duration(3000) * time.Millisecond
 	}
 	termStarted := r.currentTerm
 
@@ -330,7 +330,7 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 				Term:m.Term,
 				Success:true,
 				ID:r.ID(),
-				LatestLogIndex:m.PrevLogIndex+len(m.Entries),
+				LatestLogIndex:len(r.log) - 1,
 				NumEntries:len(m.Entries),
 			}
 			if m.LeaderCommit > r.commitIndex{
@@ -419,7 +419,9 @@ func(r *Raft)advanceCommitIndex(){
 	ids := config.IDs()
 	for _,peerId := range ids{ 
 		if peerId == r.ID(){
+			r.mu.Lock()
 			commitIndexCandidates = append(commitIndexCandidates,len(r.log)-1)
+			r.mu.Unlock()
 		}else{
 			rawMatchIndex,_ := r.matchIndex.Load(peerId)
 			matchIndex, _ := rawMatchIndex.(int)
@@ -446,15 +448,20 @@ func(r *Raft)advanceCommitIndex(){
 		return
 	}
 
+	r.mu.Lock()
 	if newCommitIndex > len(r.log) - 1{
 		//log.Debugf("there is no newCommitindex:%d in leaderLogIndex:%d",newCommitIndex,len(r.log)-1)
+		r.mu.Unlock()
 		return
 	}
 
+
 	if r.log[newCommitIndex].Term != r.currentTerm{
 		//log.Debugf("commitTerm:%d is not same as currentTerm:%d",r.log[newCommitIndex].Term, r.currentTerm)
+		r.mu.Unlock()
 		return
 	}
+	r.mu.Unlock()
 
 	r.commitIndex = newCommitIndex
 
@@ -497,7 +504,7 @@ func (r *Raft)HandleAppendEntryReply(reply AppendEntryReply){
 				}
 				request, _ := rawRequest.(*paxi.Request)
 				value := r.Execute(r.log[commitIndex].Command)
-				log.Debugf("commited:%v",r.log[r.commitIndex].Command)
+				//log.Debugf("commited:%v",r.log[r.commitIndex].Command)
 				rep := paxi.Reply{
 					Command:r.log[commitIndex].Command,
 					Value:value,
@@ -505,13 +512,20 @@ func (r *Raft)HandleAppendEntryReply(reply AppendEntryReply){
 				
 				request.Reply(rep)
 				r.requestList.Delete(commitIndex)
-				log.Debugf("reply has done.")
+				//log.Debugf("reply has done.")
 				}
 	}else{
 		r.nextIndex.Store(reply.ID,reply.LatestLogIndex+1)
 		rawNextIndex,_ := r.nextIndex.Load(reply.ID)
 		nextIndex, _ := rawNextIndex.(int)
 
+		// r.mu.Lock()
+		// logLength := len(r.log) - 1
+		// r.mu.Unlock()
+		// if nextIndex > logLength {
+		// 	nextIndex = logLength
+		// 	r.nextIndex.Store(reply.ID,nextIndex)
+		// }
 		r.mu.Lock()
 		m := AppendEntryArgs{
 			Term:r.CurrentTerm(),
