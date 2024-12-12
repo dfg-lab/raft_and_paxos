@@ -27,13 +27,13 @@ type Raft struct {
 	log []LogEntry
 	commitIndex int
 	lastApplied int
-	nextIndex map[paxi.ID]int
-	matchIndex map[paxi.ID]int
+	nextIndex sync.Map //map[paxi.ID]int
+	matchIndex sync.Map
 
 	role Role
 	electionResetEvent time.Time
 	quorum *paxi.Quorum
-	requestList map[int]*paxi.Request
+	requestList sync.Map //map[int]*paxi.Request
 	mu sync.Mutex
 
 	crash bool
@@ -55,13 +55,10 @@ func NewRaft(n paxi.Node) *Raft {
 		lastApplied:-1,
 		role:Follower,
 		crash:false,
-		nextIndex:make(map[paxi.ID]int),
-		matchIndex:make(map[paxi.ID]int),
 		quorum:paxi.NewQuorum(),
-		requestList:make(map[int]*paxi.Request),
 	}
 	for _,peerId := range ids{
-		raft.matchIndex[peerId] = -1
+		raft.matchIndex.Store(peerId,-1)
 	}
 	return raft
 }
@@ -79,16 +76,19 @@ func (r *Raft) CurrentTerm() int {
 }
 
 func (r *Raft) sendHeartbeats(){
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	ids:=config.IDs()
 	for _,peerId := range ids{
 		if peerId != r.ID(){
 			var entries[]LogEntry
-			if len(r.log)-1 > r.matchIndex[peerId]{
-				entries = r.log[r.nextIndex[peerId]:]
-				log.Debugf("リーダーのログがフォロワーより多い %v",entries)
+			rawMatchIndex,_ := r.matchIndex.Load(peerId)
+			matchIndex, _ := rawMatchIndex.(int)
+			if len(r.log)-1 > matchIndex{
+				rawNextIndex,_ := r.nextIndex.Load(peerId)
+				nextIndex, _ := rawNextIndex.(int)
+				entries = r.log[nextIndex:]
+				//log.Debugf("リーダーのログがフォロワーより多い %v",entries)
 			}
+			r.mu.Lock()
 			m := AppendEntryArgs{
 				Term:r.currentTerm,
 				LeaderId:r.ID(),
@@ -104,6 +104,7 @@ func (r *Raft) sendHeartbeats(){
 			}
 			go func(peerId paxi.ID){
 				if r.role == Leader{
+					r.mu.Unlock()
 					r.Send(peerId,m)
 				}
 			}(peerId)
@@ -117,13 +118,13 @@ func (r *Raft)RunLeader(){
 	leaderID = r.ID()
 
 	for i:=r.commitIndex+1;i<len(r.log);i++{
-		r.requestList[i] = r.log[i].Request
+		r.requestList.Store(i,r.log[i].Request)
 	}
 
 	ids := config.IDs()
 	for _,peerId := range ids{
-		r.nextIndex[peerId] = len(r.log)
-		r.matchIndex[peerId] = -1
+		r.nextIndex.Store(peerId,len(r.log))
+		r.matchIndex.Store(peerId,-1)
 	}
 	go func() {
 		ticker := time.NewTicker(50 * time.Millisecond)
@@ -136,16 +137,19 @@ func (r *Raft)RunLeader(){
 			}
 			r.mu.Lock()
 			if r.role != Leader {
+				loop := len(r.log) - 1
 				r.mu.Unlock()
 				log.Debugf("changeLeader")
-				for i:=r.commitIndex+1;i<len(r.log)-1;i++{
-					if r.requestList[i].Properties["reply"]=="false"{
+				for i:=r.commitIndex+1;i<loop;i++{
+					rawRequest,ok := r.requestList.Load(i)
+					if ok{
+						request, _ := rawRequest.(paxi.Request)
 						rep := paxi.Reply{
 							Command:r.log[i].Command,
 						}
-						request := r.requestList[i]
+
 						request.Reply(rep)
-						request.Properties["reply"]="true"
+						r.requestList.Delete(i)
 					}
 				}
 				
@@ -159,6 +163,9 @@ func (r *Raft)RunLeader(){
 
 func (r *Raft)runElectionTimer(){
 	timeoutDuration := time.Duration(150+rand.Intn(150)) * time.Millisecond
+	if r.currentTerm == 0 && r.ID() != "1.1"{
+		timeoutDuration = time.Duration(500) * time.Millisecond
+	}
 	termStarted := r.currentTerm
 
 	ticker:= time.NewTicker(10 * time.Millisecond)
@@ -183,8 +190,9 @@ func (r *Raft)runElectionTimer(){
 		}
 		elapsed := time.Since(r.electionResetEvent)
 		if elapsed >= timeoutDuration {
-			r.StartElection()
+			
 			r.mu.Unlock()
+			r.StartElection()
 			return
 		}
 		r.mu.Unlock()
@@ -192,6 +200,7 @@ func (r *Raft)runElectionTimer(){
 }
 
 func (r *Raft) StartElection(){
+	r.mu.Lock()
 	r.role = Candidate
 	r.currentTerm += 1
 	r.electionResetEvent = time.Now()
@@ -200,6 +209,7 @@ func (r *Raft) StartElection(){
 	log.Debugf("becomes Candidate (currentTerm=%d);", r.currentTerm)
 	r.quorum.Reset()
 	r.quorum.ACK(r.ID())
+	r.mu.Unlock()
 	ids := config.IDs()
 	for _,peerId := range ids{
 		if peerId != r.ID(){
@@ -221,17 +231,11 @@ func (r *Raft) StartElection(){
 }
 
 func (r *Raft)RunFollower(currentTerm int){
-	if currentTerm == 0 && r.ID() != "1.1"{
-		log.Debugf("休んでいます")
-		time.Sleep(time.Duration(1)*time.Second)
-	}
 	r.currentTerm = currentTerm
 	r.votedFor = "-1"
 	r.role = Follower
 	r.electionResetEvent = time.Now()
 	log.Infof("Node %v is follower at Term %d",r.ID(),r.currentTerm)
-	log.Infof("Node %v has %v",r.ID(),r.log)
-	//fmt.Printf("is follower at Term %d",r.currentTerm)
 	go r.runElectionTimer()
 }
 
@@ -280,7 +284,9 @@ func (r *Raft)HandleRequestVoteReply(reply RequestVoteReply){
 			r.quorum.ACK(reply.ID)
 			if r.quorum.Majority(){
 				r.quorum.Reset()
+				r.mu.Unlock()
 				r.RunLeader()
+				r.mu.Lock()
 			}
 		}
 
@@ -351,9 +357,6 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 			if m.Term > r.currentTerm{
 				reply.Term = m.Term
 			}
-			// if reply.LatestLogIndex == -2{
-			// 	reply.LatestLogIndex = -1
-			// }
 		}
 	}else{
 		if m.Term > r.currentTerm{
@@ -376,7 +379,6 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 				LatestLogIndex:len(r.log)-1,
 				NumEntries:len(m.Entries),
 			}
-			//log.Debugf("leader term is not latest")
 		}
 	
 		if m.Term == r.currentTerm{
@@ -390,8 +392,6 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 				prevLogIndex = -1
 			}
 			if prevLogIndex != m.PrevLogIndex{
-			//	log.Debugf("node %s received appendEntryArgs %+v", r.ID(), m)
-				//log.Debugf("mismatch logIndex. Request for retransimission. This node had %d entries. m.PrevLogIndex:%d",len(r.log),m.PrevLogIndex)
 				reply = AppendEntryReply{
 					Term:m.Term,
 					Success:false,
@@ -411,7 +411,6 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 			}
 		}
 	}
-	//log.Debugf("send :%+v",reply)
 	r.Send(m.LeaderId,reply)
 }
 
@@ -422,7 +421,9 @@ func(r *Raft)advanceCommitIndex(){
 		if peerId == r.ID(){
 			commitIndexCandidates = append(commitIndexCandidates,len(r.log)-1)
 		}else{
-			commitIndexCandidates = append(commitIndexCandidates,r.matchIndex[peerId])
+			rawMatchIndex,_ := r.matchIndex.Load(peerId)
+			matchIndex, _ := rawMatchIndex.(int)
+			commitIndexCandidates = append(commitIndexCandidates,matchIndex)
 		}
 	}
 
@@ -478,54 +479,52 @@ func (r *Raft)HandleAppendEntryReply(reply AppendEntryReply){
 	}
 
 	if reply.Success{
+		r.matchIndex.Store(reply.ID,reply.LatestLogIndex)
+		r.nextIndex.Store(reply.ID,reply.LatestLogIndex+1)
 		r.mu.Lock()
-		r.matchIndex[reply.ID] = reply.LatestLogIndex
-		r.nextIndex[reply.ID] = reply.LatestLogIndex + 1
 		r.quorum.ACK(reply.ID)
-		//log.Debugf("nextIndex[%s]=%d",reply.ID,r.nextIndex[reply.ID])
+		r.mu.Unlock()
 			if r.quorum.Majority(){
 				r.quorum.Reset()
-				//advance commitIndex
 				r.advanceCommitIndex()
-				//log.Debugf("commit前")
-				if r.requestList[r.commitIndex]!=nil&&r.requestList[r.commitIndex].Properties["reply"]=="true"{
-					r.mu.Unlock()
+				r.mu.Lock()
+				commitIndex := r.commitIndex
+				r.mu.Unlock()
+				rawRequest,ok := r.requestList.Load(commitIndex)
+				if !ok{
+					//already executed
 					return
 				}
-				value := r.Execute(r.log[r.commitIndex].Command)
-				//log.Debugf("commited:%v",r.log[r.commitIndex].Command)
-				//log.Infof("Node %v has %v",r.ID(),r.log)
-				if r.requestList[r.commitIndex]!=nil{
-					rep := paxi.Reply{
-						Command:r.log[r.commitIndex].Command,
-						Value:value,
-					}
-					request := r.requestList[r.commitIndex]
-					request.Reply(rep)
-					request.Properties["reply"]="true"
-					
-					//reply.request = nil
-					//log.Debugf("reply has done.")
+				request, _ := rawRequest.(*paxi.Request)
+				value := r.Execute(r.log[commitIndex].Command)
+				log.Debugf("commited:%v",r.log[r.commitIndex].Command)
+				rep := paxi.Reply{
+					Command:r.log[commitIndex].Command,
+					Value:value,
 				}
-			}
-		r.mu.Unlock()
+				
+				request.Reply(rep)
+				r.requestList.Delete(commitIndex)
+				log.Debugf("reply has done.")
+				}
 	}else{
-		// add r.currentterm < rep.currentterm
+		r.nextIndex.Store(reply.ID,reply.LatestLogIndex+1)
+		rawNextIndex,_ := r.nextIndex.Load(reply.ID)
+		nextIndex, _ := rawNextIndex.(int)
+
 		r.mu.Lock()
-		r.nextIndex[reply.ID] = reply.LatestLogIndex + 1
-		//log.Debugf("nextIndex[%s]=%d",reply.ID,r.nextIndex[reply.ID])
-		//log.Debugf("received:%+v",reply)
 		m := AppendEntryArgs{
 			Term:r.CurrentTerm(),
 			LeaderId:r.Leader(),
 			PrevLogIndex:reply.LatestLogIndex,
 			PrevLogTerm:r.log[reply.LatestLogIndex].Term,
-			Entries:r.log[r.nextIndex[reply.ID]:],//slice bounds out of range [7:6]
+			Entries:r.log[nextIndex:],
 			LeaderCommit:r.commitIndex,
 			}
-		//log.Debugf("retransimission. received appendEntryReply:%v",reply)
+			r.mu.Unlock()
+
 		r.Send(reply.ID,m)
-		r.mu.Unlock()
+		
 		}
 }
 
@@ -540,7 +539,6 @@ func (r *Raft)handleCrash(req paxi.Request){
 	req.Reply(rep)
 	time.Sleep(time.Duration(crashTime) * time.Second)
 	r.crash = false
-	//r.RunFollower(r.currentTerm)
 }
 
 func (r *Raft) HandleRequest(req paxi.Request) {
@@ -553,9 +551,10 @@ func (r *Raft) HandleRequest(req paxi.Request) {
 			Command:req.Command,
 			Request: &req,
 		}
-		logEntry.Request.Properties["reply"] = "false"
 		r.log = append(r.log,logEntry)
-		r.requestList[len(r.log)-1] = &req
+		r.mu.Unlock()
+		r.requestList.Store(len(r.log)-1,&req)
+		r.mu.Lock()
 		r.quorum.Reset()
 		r.quorum.ACK(r.ID())
 		ids := config.IDs()
@@ -566,7 +565,6 @@ func (r *Raft) HandleRequest(req paxi.Request) {
 						Term:r.CurrentTerm(),
 						LeaderId:r.Leader(),
 						PrevLogIndex:len(r.log)-2,
-						//PrevLogTerm:r.log[len(r.log)-1].Term,
 						Entries:r.log[len(r.log)-1:],
 						LeaderCommit:r.commitIndex,
 					}
