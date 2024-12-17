@@ -168,10 +168,12 @@ func (b *Benchmark) Run() {
 	b.db.Init()
 	b.startTime = time.Now()
 	if b.T > 0 {
-		timer := time.NewTimer(time.Second * time.Duration(b.T))
+		timer := time.NewTimer(time.Second * 15)
 		crashTimer := time.NewTimer(time.Second * time.Duration(b.T/2))
 		interval := time.Second / time.Duration(b.N)
 		ticker := time.NewTicker(interval)
+		count := 0
+		totalRquests := b.T * b.N
 		defer ticker.Stop()
 	loop:
 		for {
@@ -179,8 +181,41 @@ func (b *Benchmark) Run() {
 			case <-timer.C:
 				break loop
 			case <-ticker.C:
-				b.wait.Add(1)
-				keys <- b.next()
+				count += 1
+				if count < totalRquests{
+					b.wait.Add(1)
+					//keys <- b.next()
+					k := rand.Intn(b.K) + b.Min
+					go func(){
+						op := new(operation)
+							var s time.Time
+							var e time.Time
+							var v int
+							var err error
+						if rand.Float64() < b.W {
+							v = rand.Int()
+							s = time.Now()
+							err = b.db.Write(k, v)
+							e = time.Now()
+							op.input = v
+						} else {
+							s = time.Now()
+							v, err = b.db.Read(k)
+							e = time.Now()
+							op.output = k
+						}
+						op.start = s.Sub(b.startTime).Nanoseconds()
+						if err == nil {
+							op.end = e.Sub(b.startTime).Nanoseconds()
+							latencies <- e.Sub(s)
+						} else {
+						op.end = math.MaxInt64
+									//	log.Error(err)
+						}
+						b.History.AddOperation(k, op)
+					}()
+				}
+					
 			case <-crashTimer.C:
 				for _,faultyNode := range b.FaultyNode{
 					go func(faultyNode ID){
@@ -310,40 +345,95 @@ func (b *Benchmark) next() int {
 }
 
 func (b *Benchmark) worker(keys <-chan int, result chan<- time.Duration) {
-	var s time.Time
-	var e time.Time
-	var v int
-	var err error
+	var wg sync.WaitGroup // 並列処理の待ち合わせ管理
+
 	for k := range keys {
-		op := new(operation)
-		if k == -1{
-			op.crash = "node"  + " has crashed "
-		}else if k == -2{
-			op.crash = "node" + " has returned "
-		}
-		if rand.Float64() < b.W {
-			v = rand.Int()
-			s = time.Now()
-			err = b.db.Write(k, v)
-			e = time.Now()
-			op.input = v
-		} else {
-			s = time.Now()
-			v, err = b.db.Read(k)
-			e = time.Now()
-			op.output = v
-		}
-		op.start = s.Sub(b.startTime).Nanoseconds()
-		if err == nil {
-			op.end = e.Sub(b.startTime).Nanoseconds()
-			result <- e.Sub(s)
-		} else {
-			op.end = math.MaxInt64
-		//	log.Error(err)
-		}
-		b.History.AddOperation(k, op)
+		now := time.Now()
+		fmt.Printf("%s\n",now)
+		wg.Add(1) // goroutineごとにカウントを追加
+		go func(k int) {
+			defer wg.Done() // goroutine完了時にカウントを減らす
+
+			var s, e time.Time
+			var v int
+			var err error
+			op := new(operation)
+
+			// ノードクラッシュ・復帰処理
+			if k == -1 {
+				op.crash = "node has crashed "
+			} else if k == -2 {
+				op.crash = "node has returned "
+			}
+
+			// Write または Read の処理
+			if rand.Float64() < b.W {
+				v = rand.Int()
+				s = time.Now()
+				err = b.db.Write(k, v) // Write処理
+				e = time.Now()
+				op.input = v
+			} else {
+				s = time.Now()
+				v, err = b.db.Read(k) // Read処理
+				e = time.Now()
+				op.output = v
+			}
+
+			// レイテンシを結果チャンネルに送信
+			op.start = s.Sub(b.startTime).Nanoseconds()
+			if err == nil {
+				op.end = e.Sub(b.startTime).Nanoseconds()
+				result <- e.Sub(s) // レイテンシ送信
+			} else {
+				op.end = math.MaxInt64
+				log.Error(err)
+			}
+
+			// 履歴に操作を追加
+			b.History.AddOperation(k, op)
+
+		}(k) // goroutineにkを渡す
 	}
+
+	wg.Wait() // 全てのgoroutineが完了するのを待つ
 }
+
+// func (b *Benchmark) worker(keys <-chan int, result chan<- time.Duration) {
+// 	var s time.Time
+// 	var e time.Time
+// 	var v int
+// 	var err error
+// 	for k := range keys {
+// 		op := new(operation)
+// 		if k == -1{
+// 			op.crash = "node"  + " has crashed "
+// 		}else if k == -2{
+// 			op.crash = "node" + " has returned "
+// 		}
+// 		if rand.Float64() < b.W {
+// 			v = rand.Int()
+// 			s = time.Now()
+// 			//err = b.db.Write(k, v)
+// 			e = time.Now()
+// 			op.input = v
+// 		} else {
+// 			s = time.Now()
+// 			//v, err = b.db.Read(k)
+// 			e = time.Now()
+// 			op.output = k
+// 		}
+// 		op.start = s.Sub(b.startTime).Nanoseconds()
+// 		if err == nil {
+// 			op.end = e.Sub(b.startTime).Nanoseconds()
+// 			result <- e.Sub(s)
+// 		} else {
+// 			op.end = math.MaxInt64
+// 		//	log.Error(err)
+// 		}
+// 		b.History.AddOperation(k, op)
+// 	}
+// }
 
 func (b *Benchmark) collect(latencies <-chan time.Duration) {
 	for t := range latencies {

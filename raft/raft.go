@@ -166,7 +166,7 @@ func (r *Raft)RunLeader(){
 func (r *Raft)runElectionTimer(){
 	timeoutDuration := time.Duration(150+rand.Intn(150)) * time.Millisecond
 	if r.currentTerm == 0 && r.ID() != "1.1"{
-		timeoutDuration = time.Duration(500) * time.Millisecond
+		timeoutDuration = time.Duration(10000) * time.Millisecond
 	}
 	termStarted := r.currentTerm
 
@@ -506,7 +506,7 @@ func (r *Raft)HandleAppendEntryReply(reply AppendEntryReply){
 				}
 				request, _ := rawRequest.(*paxi.Request)
 				value := r.Execute(r.log[commitIndex].Command)
-				log.Debugf("commited:%v",r.log[r.commitIndex].Command)
+				//log.Debugf("commited:%v",r.log[r.commitIndex].Command)
 				rep := paxi.Reply{
 					Command:r.log[commitIndex].Command,
 					Value:value,
@@ -514,9 +514,15 @@ func (r *Raft)HandleAppendEntryReply(reply AppendEntryReply){
 				
 				request.Reply(rep)
 				r.requestList.Delete(commitIndex)
-				log.Debugf("reply has done.")
+				//log.Debugf("reply has done.")
 				}
 	}else{
+		r.mu.Lock()
+		if reply.LatestLogIndex >= len(r.log){
+			r.mu.Unlock()
+			return
+		}
+		r.mu.Unlock()
 		r.nextIndex.Store(reply.ID,reply.LatestLogIndex+1)
 		rawNextIndex,_ := r.nextIndex.Load(reply.ID)
 		nextIndex, _ := rawNextIndex.(int)
@@ -528,7 +534,11 @@ func (r *Raft)HandleAppendEntryReply(reply AppendEntryReply){
 			nextIndex = logLength
 			r.nextIndex.Store(reply.ID,nextIndex)
 		}
+		if reply.LatestLogIndex == -1{
+			return
+		}
 		r.mu.Lock()
+		log.Debugf("leader has logs:%d",len(r.log))
 		m := AppendEntryArgs{
 			Term:r.CurrentTerm(),
 			LeaderId:r.Leader(),
