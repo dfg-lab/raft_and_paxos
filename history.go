@@ -109,11 +109,11 @@ func (h *History) WriteFile(algorithm string,T int,N int,K int,W float64,node in
 	throughput := 0
 	//s := 1.0
 	fmt.Fprintf(w,"this client connects to %s\n",ID)
-	fmt.Fprintf(w, "Input,Output,startTime(s),endTime(s)\n")
+	fmt.Fprintf(w, "Input,Output,startTime(ms),endTime(ms)\n")
 	for _, o := range h.operations {
 		if o.crash ==nil{
-			start := float64(o.start) / 1000000000.0
-			end := float64(o.end) / 1000000000.0
+			start := float64(o.start) / 1000000.0
+			end := float64(o.end) / 1000000.0
 			fmt.Fprintf(w, "%v,%v,%f,%f\n", o.input, o.output, start, end)
 			latency += end - start
 			throughput++

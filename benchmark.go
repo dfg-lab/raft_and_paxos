@@ -167,82 +167,63 @@ func (b *Benchmark) Run() {
 	algorithm := b.db.Algorithm()
 	b.db.Init()
 	b.startTime = time.Now()
-	if b.T > 0 {
-		//timer := time.NewTimer(time.Second * 15)
-		crashTimer := time.NewTimer(time.Second * 30)
-		interval := time.Second / time.Duration(b.N)
-		ticker := time.NewTicker(interval)
-		count := 0
-		totalRquests := b.T * b.N
-		defer ticker.Stop()
-		for count<totalRquests{
-			b.counter = (b.counter + 1) % b.K
-			k := b.counter + b.Min
-			select {
-			case <-ticker.C:
-					// now := time.Now()
-					// if count > totalRquests - 10{
-					// 	fmt.Printf("%s\n",now)
-					// }
-					b.wait.Add(1)
-					//keys <- b.next()
-					//k := rand.Intn(b.K) + b.Min
-					// b.counter = (b.counter + 1) % b.K
-					// k := b.counter + b.Min
-					var s time.Time
-					s = time.Now()
-					go func(s time.Time){
-						defer b.wait.Done()
-						op := new(operation)
-							//var s time.Time
-							var e time.Time
-							var v int
-							var err error
-						// if rand.Float64() < b.W {
-						// 	v = rand.Int()
-						// 	//s = time.Now()
-							err = b.db.Write(k, v)
-							e = time.Now()
-							op.input = v
-						//} else {
-							//s = time.Now()
-							//v, err = b.db.Read(k)
-							//e = time.Now()
-						//	op.output = v
-						//}
-						op.start = s.Sub(b.startTime).Nanoseconds()
-						if err == nil {
-							op.end = e.Sub(b.startTime).Nanoseconds()
-							//latencies <- e.Sub(s)
-						} else {
-						op.end = math.MaxInt64
-						log.Error(err)
-						}
-						b.History.AddOperation(k, op)
-					}(s)
-					count += 1
-					
-			case <-crashTimer.C:
-				for _,faultyNode := range b.FaultyNode{
-					go func(faultyNode ID){
-						// b.wait.Add(1)
-						// keys <- -1
-						// if algorithm == "raft"{
-						// 	crashClient:= NewHTTPClient(ID(faultyNode))
-						// 	crashClient.Put(Key(-1), []byte(strconv.Itoa(b.CrashTime)))
-						// }
-						// admin.Crash(faultyNode,b.CrashTime)
-						// sleepTime := time.Duration(b.CrashTime) * time.Second
-						// time.Sleep(sleepTime)
-						// b.wait.Add(1)
-						// keys <- -2
-					}(faultyNode)
-				}
+if b.T > 0 {
+    interval := time.Second / time.Duration(b.N) // リクエスト間隔
+    totalRequests := b.T * b.N
+    count := 0
+	nextStart := time.Now() 
+    for count < totalRequests {
+        //start := time.Now() // 現在の時間を記録
+		// 次の開始時刻までの時間を計算
+		sleepDuration := time.Until(nextStart)
+		if sleepDuration > 0 {
+				time.Sleep(sleepDuration) // 必要に応じてスリープ
 			}
-			
-		}
-		b.wait.Wait()
-	}
+		
+				// 次のリクエストの予定時刻を更新
+		nextStart = nextStart.Add(interval)
+        //   op := new(operation)
+
+        //     var s, e time.Time
+
+		// 	k := rand.Intn(b.K) + b.Min 
+		// 	s=time.Now()
+		// 	e=time.Now()
+		// 	op.start = s.Sub(b.startTime).Nanoseconds()
+        //     op.end = e.Sub(b.startTime).Nanoseconds()
+		// 	b.History.AddOperation(k, op)
+        b.wait.Add(1)
+        go func() {
+            defer b.wait.Done()
+
+			k := rand.Intn(b.K) + b.Min // キーの計算
+            op := new(operation)
+
+            var s, e time.Time
+            var err error
+            var v int
+
+            // 実際の処理開始
+            s = time.Now()
+            err = b.db.Write(k, v) // データベース書き込み処理
+            e = time.Now()
+
+            // 結果の記録
+            op.start = s.Sub(b.startTime).Nanoseconds()
+            if err == nil {
+                op.end = e.Sub(b.startTime).Nanoseconds()
+            } else {
+                op.end = math.MaxInt64
+                log.Error(err)
+            }
+            b.History.AddOperation(k, op)
+        }()
+        count++
+    }
+
+    b.wait.Wait() // すべてのゴルーチンが終了するのを待機
+}
+
 	t := time.Now().Sub(b.startTime)
 
 	// for i:=0;i<b.K;i++{
