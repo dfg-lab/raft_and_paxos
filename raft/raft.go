@@ -29,6 +29,7 @@ type Raft struct {
 	lastApplied int
 	nextIndex sync.Map //map[paxi.ID]int
 	matchIndex sync.Map
+	logLength int
 
 	role Role
 	electionResetEvent time.Time
@@ -82,7 +83,7 @@ func (r *Raft) sendHeartbeats(){
 			var entries[]LogEntry
 			rawMatchIndex,_ := r.matchIndex.Load(peerId)
 			matchIndex, _ := rawMatchIndex.(int)
-			if len(r.log)-1 > matchIndex{
+			if r.logLength-1 > matchIndex{
 				rawNextIndex,_ := r.nextIndex.Load(peerId)
 				nextIndex, _ := rawNextIndex.(int)
 				entries = r.log[nextIndex:]
@@ -92,7 +93,7 @@ func (r *Raft) sendHeartbeats(){
 			m := AppendEntryArgs{
 				Term:r.currentTerm,
 				LeaderId:r.ID(),
-				PrevLogIndex:len(r.log)-2,
+				PrevLogIndex:r.logLength-2,
 				LeaderCommit:r.commitIndex,
 				Entries:entries,
 			}
@@ -118,13 +119,13 @@ func (r *Raft)RunLeader(){
 	r.role = Leader
 	leaderID = r.ID()
 
-	for i:=r.commitIndex+1;i<len(r.log);i++{
+	for i:=r.commitIndex+1;i<r.logLength;i++{
 		r.requestList.Store(i,r.log[i].Request)
 	}
 
 	ids := config.IDs()
 	for _,peerId := range ids{
-		r.nextIndex.Store(peerId,len(r.log))
+		r.nextIndex.Store(peerId,r.logLength)
 		r.matchIndex.Store(peerId,-1)
 	}
 	log.Debugf("node %s is Leader",r.ID())
@@ -139,7 +140,7 @@ func (r *Raft)RunLeader(){
 			}
 			r.mu.Lock()
 			if r.role != Leader {
-				loop := len(r.log) - 1
+				loop := r.logLength - 1
 				r.mu.Unlock()
 				log.Debugf("changeLeader")
 				for i:=r.commitIndex+1;i<loop;i++{
@@ -219,10 +220,10 @@ func (r *Raft) StartElection(){
 				m := RequestVoteArgs{
 					Term: electionTerm,
 					CandidateId: r.ID(),
-					LogLength:len(r.log),
+					LogLength:r.logLength,
 				}
 				if m.LogLength > 0{
-					m.LastEntryTerm = r.log[len(r.log)-1].Term
+					m.LastEntryTerm = r.log[r.logLength-1].Term
 				}
 				r.Send(peerId,m)
 			}(peerId)
@@ -252,12 +253,12 @@ func (r *Raft)HandleRequestVoteArgs(req RequestVoteArgs){
 			VoteGranted:true,
 			ID:r.ID(),
 		}
-		if len(r.log)>0 && r.log[len(r.log)-1].Term > req.LastEntryTerm{
+		if r.logLength>0 && r.log[r.logLength-1].Term > req.LastEntryTerm{
 			m.VoteGranted = false
 			r.Send(req.CandidateId,m)
 			return
-		}else if len(r.log)>0 && r.log[len(r.log)-1].Term == req.LastEntryTerm{
-			if len(r.log) > req.LogLength{
+		}else if r.logLength>0 && r.log[r.logLength-1].Term == req.LastEntryTerm{
+			if r.logLength > req.LogLength{
 				m.VoteGranted = false
 				r.Send(req.CandidateId,m)
 				return
@@ -304,7 +305,7 @@ func(r *Raft) checkConsistensy(m AppendEntryArgs) bool{
 	}
 
 	if m.PrevLogIndex == -1 {
-		if len(r.log) == 0{
+		if r.logLength == 0{
 			return true
 		}else{
 			//log.Debugf("333333")
@@ -312,7 +313,7 @@ func(r *Raft) checkConsistensy(m AppendEntryArgs) bool{
 		}
 	}
 
-	if m.PrevLogIndex > len(r.log) - 1{
+	if m.PrevLogIndex > r.logLength - 1{
 		//log.Debugf("44444")
 		return false
 	}
@@ -334,6 +335,7 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 		if r.checkConsistensy(m){
 			consistentLog := r.log[:m.PrevLogIndex+1]
 			r.log = append(consistentLog,m.Entries...)
+			r.logLength = len(r.log)
 			reply = AppendEntryReply{
 				Term:m.Term,
 				Success:true,
@@ -342,8 +344,8 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 				NumEntries:len(m.Entries),
 			}
 			if m.LeaderCommit > r.commitIndex{
-				if m.LeaderCommit > len(r.log) - 1{
-					r.commitIndex = len(r.log) -1
+				if m.LeaderCommit > r.logLength - 1{
+					r.commitIndex = r.logLength -1
 				}else{
 					r.commitIndex = m.LeaderCommit
 				}
@@ -353,12 +355,12 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 			r.votedFor = "-1"
 			//log.Infof("Node %v has %v",r.ID(),r.log)
 		}else{
-			//log.Debugf("not consistent. Follower latestIndex:%d,prevLogTerm:%d. Leader prevlogIndex:%d,prevLogTerm:%d",len(r.log)-1,r.log[len(r.log)-1].Term,m.PrevLogIndex,m.PrevLogTerm)
+			//log.Debugf("not consistent. Follower latestIndex:%d,prevLogTerm:%d. Leader prevlogIndex:%d,prevLogTerm:%d",r.logLength-1,r.log[r.logLength-1].Term,m.PrevLogIndex,m.PrevLogTerm)
 			reply = AppendEntryReply{
 				Term:r.currentTerm,
 				Success:false,
 				ID:r.ID(),
-				LatestLogIndex:len(r.log) - 1,
+				LatestLogIndex:r.logLength - 1,
 				NumEntries:len(m.Entries),
 			}
 
@@ -376,7 +378,7 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 				Success:true,
 				ID:r.ID(),
 				NumEntries:len(m.Entries),
-				LatestLogIndex:len(r.log)-1,
+				LatestLogIndex:r.logLength-1,
 			}
 			leaderID = m.LeaderId
 		}
@@ -386,7 +388,7 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 				Term:r.currentTerm,
 				Success:false,
 				ID:r.ID(),
-				LatestLogIndex:len(r.log)-1,
+				LatestLogIndex:r.logLength-1,
 				NumEntries:len(m.Entries),
 			}
 		}
@@ -399,7 +401,7 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 			}
 			r.electionResetEvent = time.Now()
 			r.votedFor = "-1"
-			prevLogIndex := len(r.log) - 2
+			prevLogIndex := r.logLength - 2
 			if prevLogIndex == -2 {
 				prevLogIndex = -1
 			}
@@ -409,14 +411,14 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 					Success:false,
 					ID:r.ID(),
 					NumEntries:len(m.Entries),
-					LatestLogIndex:len(r.log)-1,
+					LatestLogIndex:r.logLength-1,
 				}
 			}else{
 				reply = AppendEntryReply{
 					Term:m.Term,
 					Success:true,
 					ID:r.ID(),
-					LatestLogIndex:len(r.log)-1,
+					LatestLogIndex:r.logLength-1,
 					NumEntries:len(m.Entries),
 				}
 				leaderID = m.LeaderId
@@ -433,7 +435,7 @@ func(r *Raft)advanceCommitIndex(){
 	defer r.mu.Unlock()
 	for _,peerId := range ids{ 
 		if peerId == r.ID(){
-			commitIndexCandidates = append(commitIndexCandidates,len(r.log)-1)
+			commitIndexCandidates = append(commitIndexCandidates,r.logLength-1)
 		}else{
 			rawMatchIndex,_ := r.matchIndex.Load(peerId)
 			matchIndex, _ := rawMatchIndex.(int)
@@ -460,8 +462,8 @@ func(r *Raft)advanceCommitIndex(){
 		return
 	}
 
-	if newCommitIndex > len(r.log) - 1{
-	//	log.Debugf("there is no newCommitindex:%d in leaderLogIndex:%d",newCommitIndex,len(r.log)-1)
+	if newCommitIndex > r.logLength - 1{
+	//	log.Debugf("there is no newCommitindex:%d in leaderLogIndex:%d",newCommitIndex,r.logLength-1)
 		return
 	}
 
@@ -532,7 +534,7 @@ func (r *Raft)HandleAppendEntryReply(reply AppendEntryReply){
 			}
 	}else{
 		r.mu.Lock()
-		if reply.LatestLogIndex >= len(r.log){
+		if reply.LatestLogIndex >= r.logLength{
 			r.mu.Unlock()
 			//log.Debugf("11111")
 			return
@@ -543,7 +545,7 @@ func (r *Raft)HandleAppendEntryReply(reply AppendEntryReply){
 		nextIndex, _ := rawNextIndex.(int)
 
 		r.mu.Lock()
-		logLength := len(r.log) - 1
+		logLength := r.logLength - 1
 		r.mu.Unlock()
 		if nextIndex > logLength {
 			nextIndex = logLength
@@ -594,9 +596,9 @@ func (r *Raft) HandleRequest(req paxi.Request) {
 			Request: &req,
 		}
 		r.log = append(r.log,logEntry)
-		logLength := len(r.log)
+		r.logLength += 1 
 		r.mu.Unlock()
-		r.requestList.Store(logLength-1,&req)
+		r.requestList.Store(r.logLength-1,&req)
 		r.mu.Lock()
 		r.quorum.Reset()
 		r.quorum.ACK(r.ID())
@@ -612,8 +614,8 @@ func (r *Raft) HandleRequest(req paxi.Request) {
 					m := AppendEntryArgs{
 						Term:r.CurrentTerm(),
 						LeaderId:r.Leader(),
-						PrevLogIndex:logLength-2,
-						Entries:r.log[logLength-1:],
+						PrevLogIndex:r.logLength-2,
+						Entries:r.log[r.logLength-1:],
 						LeaderCommit:r.commitIndex,
 					}
 					if m.PrevLogIndex == -1{
