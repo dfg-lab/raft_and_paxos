@@ -115,7 +115,6 @@ func (r *Raft) sendHeartbeats(){
 }
 
 func (r *Raft)RunLeader(){
-	log.Debugf("node %s is Leader",r.ID())
 	r.role = Leader
 	leaderID = r.ID()
 
@@ -128,6 +127,7 @@ func (r *Raft)RunLeader(){
 		r.nextIndex.Store(peerId,len(r.log))
 		r.matchIndex.Store(peerId,-1)
 	}
+	log.Debugf("node %s is Leader",r.ID())
 	go func() {
 		ticker := time.NewTicker(50 * time.Millisecond)
 		defer ticker.Stop()
@@ -191,7 +191,7 @@ func (r *Raft)runElectionTimer(){
 			return
 		}
 		elapsed := time.Since(r.electionResetEvent)
-		if elapsed >= timeoutDuration {
+		if elapsed >= timeoutDuration{
 			
 			r.mu.Unlock()
 			r.StartElection()
@@ -307,15 +307,18 @@ func(r *Raft) checkConsistensy(m AppendEntryArgs) bool{
 		if len(r.log) == 0{
 			return true
 		}else{
+			//log.Debugf("333333")
 			return false
 		}
 	}
 
 	if m.PrevLogIndex > len(r.log) - 1{
+		//log.Debugf("44444")
 		return false
 	}
 
 	if m.PrevLogTerm != r.log[m.PrevLogIndex].Term{
+		//log.Debugf("555555")
 		return false
 	}
 
@@ -426,6 +429,8 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 func(r *Raft)advanceCommitIndex(){
 	var commitIndexCandidates []int
 	ids := config.IDs()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for _,peerId := range ids{ 
 		if peerId == r.ID(){
 			commitIndexCandidates = append(commitIndexCandidates,len(r.log)-1)
@@ -456,7 +461,7 @@ func(r *Raft)advanceCommitIndex(){
 	}
 
 	if newCommitIndex > len(r.log) - 1{
-		//log.Debugf("there is no newCommitindex:%d in leaderLogIndex:%d",newCommitIndex,len(r.log)-1)
+	//	log.Debugf("there is no newCommitindex:%d in leaderLogIndex:%d",newCommitIndex,len(r.log)-1)
 		return
 	}
 
@@ -492,34 +497,44 @@ func (r *Raft)HandleAppendEntryReply(reply AppendEntryReply){
 		r.nextIndex.Store(reply.ID,reply.LatestLogIndex+1)
 		r.mu.Lock()
 		r.quorum.ACK(reply.ID)
+		beforeCommitIndex := r.commitIndex
 		r.mu.Unlock()
 			if r.quorum.Majority(){
 				r.quorum.Reset()
 				r.advanceCommitIndex()
 				r.mu.Lock()
 				commitIndex := r.commitIndex
+				//log.Debugf("beforeCommitIndex %d commitIndex %d",beforeCommitIndex,commitIndex)
 				r.mu.Unlock()
-				rawRequest,ok := r.requestList.Load(commitIndex)
-				if !ok{
-					//already executed
-					return
-				}
-				request, _ := rawRequest.(*paxi.Request)
-				value := r.Execute(r.log[commitIndex].Command)
-				//log.Debugf("commited:%v",r.log[r.commitIndex].Command)
-				rep := paxi.Reply{
-					Command:r.log[commitIndex].Command,
-					Value:value,
-				}
+				for i:=beforeCommitIndex+1;i<=commitIndex;i++{
+						rawRequest,ok := r.requestList.Load(i)
+					if !ok{
+						//already executed
+						//log.Debugf("already executed ")
+						return
+					}
+					request, ok := rawRequest.(*paxi.Request)
+					if !ok{
+						log.Debugf("ieuejddoej")
+					}
+					value := r.Execute(r.log[i].Command)
+					//log.Debugf("commited:%v",r.log[r.commitIndex].Command)
+					rep := paxi.Reply{
+						Command:r.log[i].Command,
+						Value:value,
+					}
+					
+					request.Reply(rep)
+					r.requestList.Delete(i)
 				
-				request.Reply(rep)
-				r.requestList.Delete(commitIndex)
-				//log.Debugf("reply has done.")
 				}
+				//log.Debugf("reply has done.")
+			}
 	}else{
 		r.mu.Lock()
 		if reply.LatestLogIndex >= len(r.log){
 			r.mu.Unlock()
+			//log.Debugf("11111")
 			return
 		}
 		r.mu.Unlock()
@@ -535,10 +550,11 @@ func (r *Raft)HandleAppendEntryReply(reply AppendEntryReply){
 			r.nextIndex.Store(reply.ID,nextIndex)
 		}
 		if reply.LatestLogIndex == -1{
-			return
+			//log.Debugf("2222 from %s",reply.ID)
+			reply.LatestLogIndex = 0
 		}
 		r.mu.Lock()
-		log.Debugf("leader has logs:%d",len(r.log))
+		//log.Debugf("success false")
 		m := AppendEntryArgs{
 			Term:r.CurrentTerm(),
 			LeaderId:r.Leader(),
@@ -578,20 +594,26 @@ func (r *Raft) HandleRequest(req paxi.Request) {
 			Request: &req,
 		}
 		r.log = append(r.log,logEntry)
+		logLength := len(r.log)
 		r.mu.Unlock()
-		r.requestList.Store(len(r.log)-1,&req)
+		r.requestList.Store(logLength-1,&req)
 		r.mu.Lock()
 		r.quorum.Reset()
 		r.quorum.ACK(r.ID())
 		ids := config.IDs()
+		// rep := paxi.Reply{
+		// 	Command:req.Command,
+		// }
+
+		//req.Reply(rep)
 		for _,peerId:= range ids{
 			if peerId != r.ID(){
 				go func(peerId paxi.ID){
 					m := AppendEntryArgs{
 						Term:r.CurrentTerm(),
 						LeaderId:r.Leader(),
-						PrevLogIndex:len(r.log)-2,
-						Entries:r.log[len(r.log)-1:],
+						PrevLogIndex:logLength-2,
+						Entries:r.log[logLength-1:],
 						LeaderCommit:r.commitIndex,
 					}
 					if m.PrevLogIndex == -1{

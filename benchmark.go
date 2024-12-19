@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 	"fmt"
-	"strconv"
+	
 
 
 	"github.com/ailidani/paxi/log"
@@ -145,7 +145,7 @@ func (b *Benchmark) Load() {
 
 // Run starts the main logic of benchmarking
 func (b *Benchmark) Run() {
-	admin := NewHTTPClient(ID("1.1"))
+	//admin := NewHTTPClient(ID("1.1"))
 
 	var stop chan bool
 	if b.Move {
@@ -154,129 +154,114 @@ func (b *Benchmark) Run() {
 		defer close(stop)
 	}
 
-	b.latency = make([]time.Duration, 0)
-	keys := make(chan int, b.Concurrency)
-	latencies := make(chan time.Duration, 1000)
-	defer close(latencies)
-	go b.collect(latencies)
+	// b.latency = make([]time.Duration, 0)
+	// keys := make(chan int, b.Concurrency)
+	// latencies := make(chan time.Duration, 1000)
+	// defer close(latencies)
+	// go b.collect(latencies)
 
-	for i := 0; i < b.Concurrency; i++ {
-		go b.worker(keys, latencies)
-	}
+	// for i := 0; i < b.Concurrency; i++ {
+	// 	go b.worker(keys, latencies)
+	// }
 
 	algorithm := b.db.Algorithm()
 	b.db.Init()
 	b.startTime = time.Now()
 	if b.T > 0 {
-		timer := time.NewTimer(time.Second * 15)
-		crashTimer := time.NewTimer(time.Second * time.Duration(b.T/2))
+		//timer := time.NewTimer(time.Second * 15)
+		crashTimer := time.NewTimer(time.Second * 30)
 		interval := time.Second / time.Duration(b.N)
 		ticker := time.NewTicker(interval)
 		count := 0
 		totalRquests := b.T * b.N
 		defer ticker.Stop()
-	loop:
-		for {
+		for count<totalRquests{
+			b.counter = (b.counter + 1) % b.K
+			k := b.counter + b.Min
 			select {
-			case <-timer.C:
-				break loop
 			case <-ticker.C:
-				count += 1
-				if count < totalRquests{
+					// now := time.Now()
+					// if count > totalRquests - 10{
+					// 	fmt.Printf("%s\n",now)
+					// }
 					b.wait.Add(1)
 					//keys <- b.next()
-					k := rand.Intn(b.K) + b.Min
-					go func(){
+					//k := rand.Intn(b.K) + b.Min
+					// b.counter = (b.counter + 1) % b.K
+					// k := b.counter + b.Min
+					var s time.Time
+					s = time.Now()
+					go func(s time.Time){
+						defer b.wait.Done()
 						op := new(operation)
-							var s time.Time
+							//var s time.Time
 							var e time.Time
 							var v int
 							var err error
-						if rand.Float64() < b.W {
-							v = rand.Int()
-							s = time.Now()
+						// if rand.Float64() < b.W {
+						// 	v = rand.Int()
+						// 	//s = time.Now()
 							err = b.db.Write(k, v)
 							e = time.Now()
 							op.input = v
-						} else {
-							s = time.Now()
-							v, err = b.db.Read(k)
-							e = time.Now()
-							op.output = k
-						}
+						//} else {
+							//s = time.Now()
+							//v, err = b.db.Read(k)
+							//e = time.Now()
+						//	op.output = v
+						//}
 						op.start = s.Sub(b.startTime).Nanoseconds()
 						if err == nil {
 							op.end = e.Sub(b.startTime).Nanoseconds()
-							latencies <- e.Sub(s)
+							//latencies <- e.Sub(s)
 						} else {
 						op.end = math.MaxInt64
-									//	log.Error(err)
+						log.Error(err)
 						}
 						b.History.AddOperation(k, op)
-					}()
-				}
+					}(s)
+					count += 1
 					
 			case <-crashTimer.C:
 				for _,faultyNode := range b.FaultyNode{
 					go func(faultyNode ID){
-						b.wait.Add(1)
-						keys <- -1
-						if algorithm == "raft"{
-							crashClient:= NewHTTPClient(ID(faultyNode))
-							crashClient.Put(Key(-1), []byte(strconv.Itoa(b.CrashTime)))
-						}
-						admin.Crash(faultyNode,b.CrashTime)
-						sleepTime := time.Duration(b.CrashTime) * time.Second
-						time.Sleep(sleepTime)
-						b.wait.Add(1)
-						keys <- -2
+						// b.wait.Add(1)
+						// keys <- -1
+						// if algorithm == "raft"{
+						// 	crashClient:= NewHTTPClient(ID(faultyNode))
+						// 	crashClient.Put(Key(-1), []byte(strconv.Itoa(b.CrashTime)))
+						// }
+						// admin.Crash(faultyNode,b.CrashTime)
+						// sleepTime := time.Duration(b.CrashTime) * time.Second
+						// time.Sleep(sleepTime)
+						// b.wait.Add(1)
+						// keys <- -2
 					}(faultyNode)
 				}
 			}
-		}
-	} else {
-		for i := 0; i < b.N; i++ {
-			b.wait.Add(1)
-			keys <- b.next()
-			if i== b.N/2{
-				for _,faultyNode := range b.FaultyNode{
-					go func(faultyNode ID){
-						b.wait.Add(1)
-						keys <- -1
-						if algorithm == "raft"{
-							crashClient:= NewHTTPClient(ID(faultyNode))
-							crashClient.Put(Key(-1), []byte(strconv.Itoa(b.CrashTime)))
-						}
-						admin.Crash(faultyNode,b.CrashTime)
-						sleepTime := time.Duration(b.CrashTime) * time.Second
-						time.Sleep(sleepTime)
-						b.wait.Add(1)
-						keys <- -2
-					}(faultyNode)
-				}
-			}
+			
 		}
 		b.wait.Wait()
 	}
 	t := time.Now().Sub(b.startTime)
 
-	for i:=0;i<b.K;i++{
-		if !admin.Consensus(Key(i)){
-			fmt.Printf("No consensus on key = %d\n",i)
-			break
-		}
-	}
+	// for i:=0;i<b.K;i++{
+	// 	if !admin.Consensus(Key(i)){
+	// 		fmt.Printf("No consensus on key = %d\n",i)
+	// 		break
+	// 	}
+	// }
 	b.db.Stop()
-	close(keys)
-	stat := Statistic(b.latency)
+	//close(keys)
+	//stat := Statistic(b.latency)
 	log.Infof("Concurrency = %d", b.Concurrency)
 	log.Infof("Write Ratio = %f", b.W)
 	log.Infof("Number of Keys = %d", b.K)
 	log.Infof("Benchmark Time = %v\n", t)
-	log.Infof("Throughput = %f\n", float64(len(b.latency))/t.Seconds())
-	log.Info(stat)
+	//log.Infof("Throughput = %f\n", float64(len(b.latency))/t.Seconds())
+	//log.Info(stat)
 
-	stat.WriteFile("latency")
+	//stat.WriteFile("latency")
 
 	W:=b.W
 	N:=b.N
@@ -287,16 +272,16 @@ func (b *Benchmark) Run() {
 	faultyNode := len(b.FaultyNode) 
 	b.History.WriteFile(algorithm,T,N,K,W,node,faultyNode,ID)
 
-	if b.LinearizabilityCheck {
-		n := b.History.Linearizable()
-		if n == 0 {
-			log.Info("The execution is linearizable.")
-		} else {
-			log.Info("The execution is NOT linearizable.")
-			log.Infof("Total anomaly read operations are %d", n)
-			log.Infof("Anomaly percentage is %f", float64(n)/float64(stat.Size))
-		}
-	}
+	// if b.LinearizabilityCheck {
+	// 	n := b.History.Linearizable()
+	// 	if n == 0 {
+	// 		log.Info("The execution is linearizable.")
+	// 	} else {
+	// 		log.Info("The execution is NOT linearizable.")
+	// 		log.Infof("Total anomaly read operations are %d", n)
+	// 		log.Infof("Anomaly percentage is %f", float64(n)/float64(stat.Size))
+	// 	}
+	// }
 }
 
 // generates key based on distribution
