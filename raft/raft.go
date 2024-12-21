@@ -194,7 +194,7 @@ func (r *Raft)runElectionTimer(){
 		if elapsed >= timeoutDuration{
 			
 			r.mu.Unlock()
-			r.StartElection()
+		//	r.StartElection()
 			return
 		}
 		r.mu.Unlock()
@@ -235,7 +235,7 @@ func (r *Raft)RunFollower(currentTerm int){
 }
 
 func (r *Raft)HandleRequestVoteArgs(req RequestVoteArgs){
-	//("receive request vote args")
+	log.Debugf("receive request vote args")
 	if req.Term > r.currentTerm{
 		r.RunFollower(req.Term)
 	}
@@ -321,6 +321,8 @@ func(r *Raft) checkConsistensy(m AppendEntryArgs) bool{
 func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.electionResetEvent = time.Now()
+	//log.Debugf("receive appendentry")
 	var reply AppendEntryReply
 	if m.Entries != nil{
 		//log.Debugf("node %s received AppendEntryArgs %+v", r.ID(), m)
@@ -343,7 +345,7 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 				}
 				
 			}
-			r.electionResetEvent = time.Now()
+		
 			r.votedFor = "-1"
 			//log.Infof("Node %v has %v",r.ID(),r.log)
 		}else{
@@ -392,7 +394,7 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 				r.RunFollower(m.Term)
 				r.mu.Lock()
 			}
-			r.electionResetEvent = time.Now()
+
 			r.votedFor = "-1"
 			prevLogIndex := r.logLength - 2
 			if prevLogIndex == -2 {
@@ -406,6 +408,7 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 					NumEntries:len(m.Entries),
 					LatestLogIndex:r.logLength-1,
 				}
+				log.Debugf("prevLogIndex%d,m.PrevLogIndex%d",prevLogIndex,m.PrevLogIndex)
 			}else{
 				reply = AppendEntryReply{
 					Term:m.Term,
