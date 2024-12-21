@@ -87,7 +87,6 @@ func (r *Raft) sendHeartbeats(){
 				rawNextIndex,_ := r.nextIndex.Load(peerId)
 				nextIndex, _ := rawNextIndex.(int)
 				entries = r.log[nextIndex:]
-				//log.Debugf("リーダーのログがフォロワーより多い %v",entries)
 			}
 			r.mu.Lock()
 			m := AppendEntryArgs{
@@ -213,22 +212,15 @@ func (r *Raft) StartElection(){
 	r.quorum.Reset()
 	r.quorum.ACK(r.ID())
 	r.mu.Unlock()
-	ids := config.IDs()
-	for _,peerId := range ids{
-		if peerId != r.ID(){
-			go func(peerId paxi.ID){
-				m := RequestVoteArgs{
-					Term: electionTerm,
-					CandidateId: r.ID(),
-					LogLength:r.logLength,
-				}
-				if m.LogLength > 0{
-					m.LastEntryTerm = r.log[r.logLength-1].Term
-				}
-				r.Send(peerId,m)
-			}(peerId)
-		}
+	m := RequestVoteArgs{
+		Term: electionTerm,
+		CandidateId: r.ID(),
+		LogLength:r.logLength,
 	}
+	if m.LogLength > 0{
+		m.LastEntryTerm = r.log[r.logLength-1].Term
+	}
+	r.Broadcast(m)
 
 	go r.runElectionTimer()
 }
@@ -355,7 +347,7 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 			r.votedFor = "-1"
 			//log.Infof("Node %v has %v",r.ID(),r.log)
 		}else{
-			//log.Debugf("not consistent. Follower latestIndex:%d,prevLogTerm:%d. Leader prevlogIndex:%d,prevLogTerm:%d",r.logLength-1,r.log[r.logLength-1].Term,m.PrevLogIndex,m.PrevLogTerm)
+			log.Debugf("not consistent. Follower latestIndex:%d. Leader prevlogIndex:%d,prevLogTerm:%d",r.logLength-1,m.PrevLogIndex,m.PrevLogTerm)
 			reply = AppendEntryReply{
 				Term:r.currentTerm,
 				Success:false,
@@ -381,6 +373,7 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 				LatestLogIndex:r.logLength-1,
 			}
 			leaderID = m.LeaderId
+			return
 		}
 	
 		if m.Term < r.currentTerm{
@@ -422,6 +415,7 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 					NumEntries:len(m.Entries),
 				}
 				leaderID = m.LeaderId
+				return
 			}
 		}
 	}
@@ -517,7 +511,7 @@ func (r *Raft)HandleAppendEntryReply(reply AppendEntryReply){
 					}
 					request, ok := rawRequest.(*paxi.Request)
 					if !ok{
-						log.Debugf("ieuejddoej")
+						//log.Debugf("ieuejddoej")
 					}
 					value := r.Execute(r.log[i].Command)
 					//log.Debugf("commited:%v",r.log[r.commitIndex].Command)
@@ -602,32 +596,20 @@ func (r *Raft) HandleRequest(req paxi.Request) {
 		r.mu.Lock()
 		r.quorum.Reset()
 		r.quorum.ACK(r.ID())
-		ids := config.IDs()
-		// rep := paxi.Reply{
-		// 	Command:req.Command,
-		// }
-
-		//req.Reply(rep)
-		for _,peerId:= range ids{
-			if peerId != r.ID(){
-				go func(peerId paxi.ID){
-					m := AppendEntryArgs{
-						Term:r.CurrentTerm(),
-						LeaderId:r.Leader(),
-						PrevLogIndex:r.logLength-2,
-						Entries:r.log[r.logLength-1:],
-						LeaderCommit:r.commitIndex,
-					}
-					if m.PrevLogIndex == -1{
-						m.PrevLogTerm = 0
-					}else{
-						m.PrevLogTerm = r.log[m.PrevLogIndex].Term
-					}
-					r.Send(peerId,m)
-				}(peerId)
-			}
-			
+		m := AppendEntryArgs{
+			Term:r.CurrentTerm(),
+			LeaderId:r.Leader(),
+			PrevLogIndex:r.logLength-2,
+			Entries:r.log[r.logLength-1:],
+			LeaderCommit:r.commitIndex,
 		}
+		if m.PrevLogIndex == -1{
+			m.PrevLogTerm = 0
+		}else{
+			m.PrevLogTerm = r.log[m.PrevLogIndex].Term
+		}
+		r.Broadcast(m)
+	//	log.Debugf("broadCast %v",m)
 	}else{
 		log.Debugf("This is not Leader\n")
 		r.Forward(leaderID,req)
