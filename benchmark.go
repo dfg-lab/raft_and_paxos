@@ -202,11 +202,12 @@ if b.T > 0 {
             var s, e time.Time
             var err error
             var v int
-
+			v = rand.Int()
             // 実際の処理開始
             s = time.Now()
             err = b.db.Write(k, v) // データベース書き込み処理
             e = time.Now()
+			op.input = v
 
             // 結果の記録
             op.start = s.Sub(b.startTime).Nanoseconds()
