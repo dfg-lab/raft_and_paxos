@@ -79,7 +79,7 @@ func DefaultBConfig() Bconfig {
 		CrashTime:			  0,
 	}
 }
-
+var history *History
 // Benchmark is benchmarking tool that generates workload and collects operation history and latency
 type Benchmark struct {
 	db DB // read/write operation interface
@@ -102,6 +102,7 @@ func NewBenchmark(db DB) *Benchmark {
 	b.db = db
 	b.Bconfig = config.Benchmark
 	b.History = NewHistory()
+	history = b.History
 	if b.Throttle > 0 {
 		b.rate = NewLimiter(b.Throttle)
 	}
@@ -145,7 +146,7 @@ func (b *Benchmark) Load() {
 
 // Run starts the main logic of benchmarking
 func (b *Benchmark) Run() {
-	//admin := NewHTTPClient(ID("1.1"))
+	admin := NewHTTPClient(ID("1.1"))
 
 	var stop chan bool
 	if b.Move {
@@ -166,6 +167,13 @@ func (b *Benchmark) Run() {
 
 	algorithm := b.db.Algorithm()
 	b.db.Init()
+	if algorithm == "paxos"{
+		k := rand.Intn(b.K) + b.Min // キーの計算
+
+		var v int
+		v = rand.Int()
+		_ = b.db.Write(k, v)
+	}
 	b.startTime = time.Now()
 if b.T > 0 {
     interval := time.Second / time.Duration(b.N) // リクエスト間隔
@@ -193,6 +201,11 @@ if b.T > 0 {
         //     op.end = e.Sub(b.startTime).Nanoseconds()
 		// 	b.History.AddOperation(k, op)
         b.wait.Add(1)
+		if count == totalRequests/2{
+			for _,faultyNode := range b.FaultyNode{
+				admin.Crash(faultyNode,b.CrashTime)
+			}
+		}
         go func() {
             defer b.wait.Done()
 
