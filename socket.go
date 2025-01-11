@@ -71,6 +71,20 @@ func NewSocket(id ID, addrs map[ID]string) Socket {
 func (s *socket) Send(to ID, m interface{}) {
 	v := reflect.ValueOf(m)
 
+	if crashMessage, ok := m.(CrashMessage); ok {
+			s.lock.RLock()
+			t, _ := s.nodes[to]
+			s.lock.RUnlock()
+			err := Retry(t.Dial, 100, time.Duration(50)*time.Millisecond)
+			if err != nil {
+				panic(err)
+			}
+			log.Debugf("node %s sending crash signal to %v", s.id, to)
+			t.Send(crashMessage)
+			
+			return
+	}
+
 	if v.Kind() == reflect.Struct {
         // フィールドを調べてnilかどうか確認
         field := v.FieldByName("Entries")
@@ -139,6 +153,9 @@ func (s *socket) Recv() interface{} {
 	s.lock.RUnlock()
 	for {
 		m := t.Recv()
+		if crashMessage, ok := m.(CrashMessage); ok {
+			return crashMessage
+		}
 		if !s.crash {
 			return m
 		}
@@ -216,6 +233,9 @@ func (s *socket) Flaky(id ID, p float64, t int) {
 }
 
 func (s *socket) Crash(t int) {
+	//paxos時は使わない
+	crashMessage := CrashMessage{Duration: t}
+	s.Send(s.id, crashMessage)
 	s.crash = true
 	log.Debugf("node %s Crash", s.id)
 	if t > 0 {

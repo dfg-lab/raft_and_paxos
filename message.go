@@ -14,6 +14,7 @@ func init() {
 	gob.Register(TransactionReply{})
 	gob.Register(Register{})
 	gob.Register(Config{})
+	gob.Register(CrashMessage{})
 }
 
 /***************************
@@ -27,6 +28,10 @@ type Request struct {
 	Timestamp  int64
 	NodeID     ID         // forward by node
 	c          chan Reply // reply channel created by request receiver
+}
+
+type CrashMessage struct {
+	Duration int // クラッシュの継続時間（秒）
 }
 
 // Reply replies to current client session
