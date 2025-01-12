@@ -492,13 +492,10 @@ func (r *Raft)HandleAppendEntryReply(reply AppendEntryReply){
 		r.matchIndex.Store(reply.ID,reply.LatestLogIndex)
 		r.nextIndex.Store(reply.ID,reply.LatestLogIndex+1)
 		r.mu.Lock()
-		if reply.LatestLogIndex > r.commitIndex{
-		 r.quorum.ACK(reply.ID)
-		}
+		r.log[reply.LatestLogIndex].quorum.ACK(reply.ID)
 		beforeCommitIndex := r.commitIndex
 	//	r.mu.Unlock()
-			if r.quorum.Majority(){
-				r.quorum.Reset()
+			if r.log[reply.LatestLogIndex].quorum.Majority(){
 				r.advanceCommitIndex()
 			//	r.mu.Lock()
 				commitIndex := r.commitIndex
@@ -590,14 +587,13 @@ func (r *Raft) HandleRequest(req paxi.Request) {
 			Term:r.currentTerm,
 			Command:req.Command,
 			Request: &req,
+			quorum: paxi.NewQuorum(),
 		}
 		r.log = append(r.log,logEntry)
 		r.logLength += 1 
 	
 		r.requestList.Store(r.logLength-1,&req)
-	
-		r.quorum.Reset()
-		r.quorum.ACK(r.ID())
+		logEntry.quorum.ACK(r.ID())
 		m := AppendEntryArgs{
 			Term:r.CurrentTerm(),
 			LeaderId:r.Leader(),

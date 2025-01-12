@@ -31,6 +31,7 @@ type LogEntry struct{
 	Term int
 	Command paxi.Command
 	Request *paxi.Request
+	quorum *paxi.Quorum
 }
 
 type AppendEntryArgs struct{
