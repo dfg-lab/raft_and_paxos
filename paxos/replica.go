@@ -35,8 +35,18 @@ func NewReplica(id paxi.ID) *Replica {
 	r.Register(P2a{}, r.HandleP2a)
 	r.Register(P2b{}, r.HandleP2b)
 	r.Register(P3{}, r.HandleP3)
+	r.Register(RecoveryResponse{},r.HandleRecoveryResponse)
+	r.Register(RecoveryRequest{},r.HandleRecoveryRequest)
 	return r
 }
+
+
+// func(r *Replica)Run(){
+// 	if r.ID()=="1.1"{
+// 		go r.Paxos.SendP1a()
+// 	}
+// 	r.Node.Run()
+// }
 
 func (r *Replica) handleRequest(m paxi.Request) {
 	//log.Debugf("Replica %s received %v\n", r.ID(), m)
