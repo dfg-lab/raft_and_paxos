@@ -110,7 +110,7 @@ func (t *transport) Dial() error {
 		for m := range t.send {
 			err := encoder.Encode(&m)
 			if err != nil {
-				//log.Error(err)
+				log.Error(err)
 			}
 		}
 	}(conn)
@@ -154,7 +154,7 @@ func (t *tcp) Listen() {
 						var m interface{}
 						err := decoder.Decode(&m)
 						if err != nil {
-							//log.Error(err)
+							log.Error(err)
 							continue
 						}
 						t.recv <- m

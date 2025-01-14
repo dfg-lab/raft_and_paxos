@@ -42,7 +42,7 @@ type Raft struct {
 
 var config paxi.Config
 var leaderID paxi.ID
-
+var count int
 
 func NewRaft(n paxi.Node) *Raft {
 	config = paxi.GetConfig()
@@ -115,6 +115,7 @@ func (r *Raft) sendHeartbeats(){
 }
 
 func (r *Raft)RunLeader(){
+	go r.runElectionTimer()
 	r.role = Leader
 	leaderID = r.ID()
 
@@ -128,20 +129,21 @@ func (r *Raft)RunLeader(){
 		r.matchIndex.Store(peerId,-1)
 	}
 	log.Debugf("node %s is Leader",r.ID())
+	count+=1
 	go func() {
 		ticker := time.NewTicker(50 * time.Millisecond)
 		defer ticker.Stop()
 
 		for {
 			if r.crash == false{
-				r.sendHeartbeats()
+				//r.sendHeartbeats()
 			}
 			<-ticker.C
 			r.mu.Lock()
 			if r.role != Leader {
 				loop := r.logLength - 1
 				r.mu.Unlock()
-				log.Debugf("changeLeader")
+				//log.Debugf("changeLeader")
 				for i:=r.commitIndex+1;i<loop;i++{
 					rawRequest,ok := r.requestList.Load(i)
 					if ok{
@@ -181,10 +183,10 @@ func (r *Raft)runElectionTimer(){
 			return
 		}
 
-		if r.role != Candidate && r.role != Follower{
-			r.mu.Unlock()
-			return
-		}
+		// if r.role != Candidate && r.role != Follower{
+		// 	r.mu.Unlock()
+		// 	return
+		// }
 
 		if termStarted != r.currentTerm {
 			r.mu.Unlock()
@@ -194,7 +196,10 @@ func (r *Raft)runElectionTimer(){
 		if elapsed >= timeoutDuration{
 			
 			r.mu.Unlock()
-			r.StartElection()
+			if (r.ID() == "1.1")&&count<100{
+				r.StartElection()
+			}
+			//r.StartElection()
 			return
 		}
 		r.mu.Unlock()
@@ -208,7 +213,6 @@ func (r *Raft) StartElection(){
 	r.electionResetEvent = time.Now()
 	r.votedFor= r.Node.ID()
 	electionTerm := r.currentTerm
-	log.Debugf("becomes Candidate (currentTerm=%d);", r.currentTerm)
 	r.quorum.Reset()
 	r.quorum.ACK(r.ID())
 	r.mu.Unlock()
@@ -220,6 +224,7 @@ func (r *Raft) StartElection(){
 	if m.LogLength > 0{
 		m.LastEntryTerm = r.log[r.logLength-1].Term
 	}
+	log.Debugf("becomes Candidate (currentTerm=%d);", r.currentTerm)
 	r.Broadcast(m)
 
 	go r.runElectionTimer()
@@ -271,7 +276,7 @@ func (r *Raft)HandleRequestVoteArgs(req RequestVoteArgs){
 func (r *Raft)HandleRequestVoteReply(reply RequestVoteReply){
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	log.Debugf("receive reply")
+	//log.Debugf("receive reply")
 	if r.role == Candidate{
 		if reply.Term > r.currentTerm{
 			r.mu.Unlock()
@@ -422,35 +427,7 @@ func (r *Raft)HandleAppendEntryArgs(m AppendEntryArgs){
 	r.Send(m.LeaderId,reply)
 }
 
-func(r *Raft)advanceCommitIndex(){
-	var commitIndexCandidates []int
-	ids := config.IDs()
-//	r.mu.Lock()
-//	defer r.mu.Unlock()
-	for _,peerId := range ids{ 
-		if peerId == r.ID(){
-			commitIndexCandidates = append(commitIndexCandidates,r.logLength-1)
-		}else{
-			rawMatchIndex,_ := r.matchIndex.Load(peerId)
-			matchIndex, _ := rawMatchIndex.(int)
-			commitIndexCandidates = append(commitIndexCandidates,matchIndex)
-		}
-	}
-
-	majority := (len(ids)+1)/2
-	var newCommitIndex int
-	for _,commitIndexCandidate := range commitIndexCandidates{
-		var num int
-		for _,otherCommitIndexCnadidates := range commitIndexCandidates{
-			if commitIndexCandidate <= otherCommitIndexCnadidates{
-				num += 1
-			}
-		}
-		if num >= majority && commitIndexCandidate > newCommitIndex{
-			newCommitIndex = commitIndexCandidate
-		}
-	}
-
+func(r *Raft)advanceCommitIndex(newCommitIndex int){
 	if r.commitIndex >= newCommitIndex{
 		//log.Debugf("leader commitIndex:%d is larger than newCommitIndex:%d.",r.commitIndex,newCommitIndex)
 		return
@@ -496,7 +473,7 @@ func (r *Raft)HandleAppendEntryReply(reply AppendEntryReply){
 		beforeCommitIndex := r.commitIndex
 	//	r.mu.Unlock()
 			if r.log[reply.LatestLogIndex].quorum.Majority(){
-				r.advanceCommitIndex()
+				r.advanceCommitIndex(reply.LatestLogIndex)
 			//	r.mu.Lock()
 				commitIndex := r.commitIndex
 				//log.Debugf("beforeCommitIndex %d commitIndex %d",beforeCommitIndex,commitIndex)
@@ -533,14 +510,11 @@ func (r *Raft)HandleAppendEntryReply(reply AppendEntryReply){
 			//log.Debugf("11111")
 			return
 		}
-		r.mu.Unlock()
 		r.nextIndex.Store(reply.ID,reply.LatestLogIndex+1)
 		rawNextIndex,_ := r.nextIndex.Load(reply.ID)
 		nextIndex, _ := rawNextIndex.(int)
 
-		r.mu.Lock()
 		logLength := r.logLength - 1
-		r.mu.Unlock()
 		if nextIndex > logLength {
 			nextIndex = logLength
 			r.nextIndex.Store(reply.ID,nextIndex)
@@ -549,7 +523,6 @@ func (r *Raft)HandleAppendEntryReply(reply AppendEntryReply){
 			//log.Debugf("2222 from %s",reply.ID)
 			reply.LatestLogIndex = 0
 		}
-		r.mu.Lock()
 		//log.Debugf("success false")
 		m := AppendEntryArgs{
 			Term:r.CurrentTerm(),
@@ -559,7 +532,6 @@ func (r *Raft)HandleAppendEntryReply(reply AppendEntryReply){
 			Entries:r.log[nextIndex:],
 			LeaderCommit:r.commitIndex,
 			}
-			r.mu.Unlock()
 		r.Send(reply.ID,m)
 		log.Debugf("aknvakwevnkwae")
 		}

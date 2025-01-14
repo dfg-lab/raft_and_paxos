@@ -13,6 +13,9 @@ func init() {
 	gob.Register(P2a{})
 	gob.Register(P2b{})
 	gob.Register(P3{})
+	gob.Register(RecoveryRequest{})
+	gob.Register(RecoveryResponse{})
+	gob.Register(map[int]*entry{})
 }
 
 // P1a prepare message
@@ -76,4 +79,19 @@ type P3 struct {
 
 func (m P3) String() string {
 	return fmt.Sprintf("P3 {b=%v s=%d cmd=%v}", m.Ballot, m.Slot, m.Command)
+}
+
+type RecoveryRequest struct {
+	MissingSlots []int
+	ID           paxi.ID
+}
+
+type RecoveryLogEntry struct {
+    Slot    int
+    Ballot  paxi.Ballot
+    Command paxi.Command
+}
+
+type RecoveryResponse struct {
+    Log []RecoveryLogEntry // 配列でログを送信
 }
