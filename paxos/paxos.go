@@ -36,6 +36,8 @@ type Paxos struct {
 	Q1              func(*paxi.Quorum) bool
 	Q2              func(*paxi.Quorum) bool
 	ReplyWhenCommit bool
+
+	logLength int
 }
 
 // NewPaxos creates new paxos instance
@@ -243,17 +245,17 @@ func (p *Paxos) HandleP2a(m P2a) {
 	if m.Ballot >= p.ballot {
 		p.ballot = m.Ballot
 		p.active = false
-log.Debugf("%d,%d",m.Slot,p.execute)
-		if m.Slot > p.execute+1 {
+//log.Debugf("%d,%d",m.Slot,p.slot)
+		if m.Slot > p.logLength {
 			missingSlots := []int{}
-			for s := p.execute; s < m.Slot; s++ {
+			for s := p.logLength; s < m.Slot; s++ {
 				if _, exists := p.log[s]; !exists {
 					missingSlots = append(missingSlots, s)
 				}
 			}
 	
 			if len(missingSlots) > 0 {
-				log.Debugf("%d",len(missingSlots))
+				//log.Debugf("%d",len(missingSlots))
 				p.Send(m.Ballot.ID(), RecoveryRequest{
 					MissingSlots: missingSlots,
 					ID:           p.ID(),
@@ -281,6 +283,7 @@ log.Debugf("%d,%d",m.Slot,p.execute)
 				command: m.Command,
 				commit:  false,
 			}
+			p.logLength++
 		}
 	}
 
@@ -340,7 +343,7 @@ func (p *Paxos) HandleP2b(m P2b) {
 // HandleP3 handles phase 3 commit message
 func (p *Paxos) HandleP3(m P3) {
 	// log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.Ballot.ID(), m, p.ID())
-
+	//("%d,%d",m.Slot,p.slot)
 	p.slot = paxi.Max(p.slot, m.Slot)
 
 	e, exist := p.log[m.Slot]
@@ -405,7 +408,7 @@ func (p *Paxos) forward() {
 
 // HandleRecoveryResponse handles recovery responses and updates the log
 func (p *Paxos) HandleRecoveryResponse(m RecoveryResponse) {
-    log.Debugf("Received RecoveryResponse with %d entries", len(m.Log))
+    //("Received RecoveryResponse with %d entries", len(m.Log))
     for _, en := range m.Log {
         if _, exists := p.log[en.Slot]; !exists {
             p.log[en.Slot] = &entry{ // 必要に応じて変換
@@ -413,7 +416,7 @@ func (p *Paxos) HandleRecoveryResponse(m RecoveryResponse) {
                 command: en.Command,
                 commit:  true, 
             }
-            log.Debugf("Recovered slot %d", en.Slot)
+          //  log.Debugf("Recovered slot %d", en.Slot)
         }
     }
 }
@@ -431,7 +434,7 @@ func (p *Paxos) HandleRecoveryRequest(m RecoveryRequest) {
             })
         }
     }
-    log.Debugf("%s, recovered entries: %d", m.ID, len(response.Log))
+   // log.Debugf("%s, recovered entries: %d", m.ID, len(response.Log))
     p.Send(m.ID, response)
-    log.Debugf("Sent RecoveryResponse")
+   // log.Debugf("Sent RecoveryResponse")
 }
