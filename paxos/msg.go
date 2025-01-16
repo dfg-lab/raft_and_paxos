@@ -82,7 +82,7 @@ func (m P3) String() string {
 }
 
 type RecoveryRequest struct {
-	MissingSlots []int
+	LastSlots int
 	ID           paxi.ID
 }
 
@@ -93,5 +93,5 @@ type RecoveryLogEntry struct {
 }
 
 type RecoveryResponse struct {
-    Log []RecoveryLogEntry // 配列でログを送信
+    Log []RecoveryLogEntry
 }

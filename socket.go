@@ -234,8 +234,8 @@ func (s *socket) Flaky(id ID, p float64, t int) {
 
 func (s *socket) Crash(t int) {
 	//paxos時は使わない
-	// crashMessage := CrashMessage{Duration: t}
-	// s.Send(s.id, crashMessage)
+	crashMessage := CrashMessage{Duration: t}
+	s.Send(s.id, crashMessage)
 	s.crash = true
 	log.Debugf("node %s Crash", s.id)
 	if t > 0 {

@@ -37,6 +37,7 @@ func NewReplica(id paxi.ID) *Replica {
 	r.Register(P3{}, r.HandleP3)
 	r.Register(RecoveryResponse{},r.HandleRecoveryResponse)
 	r.Register(RecoveryRequest{},r.HandleRecoveryRequest)
+	r.Register(paxi.CrashMessage{}, r.handleCrashMessage)
 	return r
 }
 
@@ -91,4 +92,9 @@ func (r *Replica) readInProgress(m paxi.Request) (paxi.Value, bool) {
 
 	// not in progress key
 	return r.Node.Execute(m.Command), false
+}
+
+func (r *Replica) handleCrashMessage(m paxi.CrashMessage){
+	//log.Debugf("11111111")
+	r.Paxos.handleCrash(m.Duration)
 }

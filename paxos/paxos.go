@@ -3,6 +3,7 @@ package paxos
 import (
 	"strconv"
 	"time"
+	"sync"
 
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
@@ -38,6 +39,7 @@ type Paxos struct {
 	ReplyWhenCommit bool
 
 	logLength int
+	mu sync.Mutex
 }
 
 // NewPaxos creates new paxos instance
@@ -246,22 +248,22 @@ func (p *Paxos) HandleP2a(m P2a) {
 		p.ballot = m.Ballot
 		p.active = false
 //log.Debugf("%d,%d",m.Slot,p.slot)
-		if m.Slot > p.logLength {
-			missingSlots := []int{}
-			for s := p.logLength; s < m.Slot; s++ {
-				if _, exists := p.log[s]; !exists {
-					missingSlots = append(missingSlots, s)
-				}
-			}
+		// if m.Slot > p.logLength {
+		// 	missingSlots := []int{}
+		// 	for s := p.logLength; s < m.Slot; s++ {
+		// 		if _, exists := p.log[s]; !exists {
+		// 			missingSlots = append(missingSlots, s)
+		// 		}
+		// 	}
 	
-			if len(missingSlots) > 0 {
-				//log.Debugf("%d",len(missingSlots))
-				p.Send(m.Ballot.ID(), RecoveryRequest{
-					MissingSlots: missingSlots,
-					ID:           p.ID(),
-				})
-			}
-		}
+		// 	if len(missingSlots) > 0 {
+		// 		//log.Debugf("%d",len(missingSlots))
+		// 		p.Send(m.Ballot.ID(), RecoveryRequest{
+		// 			MissingSlots: missingSlots,
+		// 			ID:           p.ID(),
+		// 		})
+		// 	}
+		// }
 
 		// update slot number
 		p.slot = paxi.Max(p.slot, m.Slot)
@@ -283,8 +285,11 @@ func (p *Paxos) HandleP2a(m P2a) {
 				command: m.Command,
 				commit:  false,
 			}
-			p.logLength++
 		}
+		p.mu.Lock()
+		p.logLength = len(p.log)
+		p.mu.Unlock()
+		log.Debugf("slot:%d,filledSlot:%d",p.slot+1,p.logLength)
 	}
 
 	p.Send(m.Ballot.ID(), P2b{
@@ -416,7 +421,11 @@ func (p *Paxos) HandleRecoveryResponse(m RecoveryResponse) {
                 command: en.Command,
                 commit:  true, 
             }
-          //  log.Debugf("Recovered slot %d", en.Slot)
+           // log.Debugf("Recovered slot %d", en.Slot)
+		   p.mu.Lock()
+		   p.logLength = len(p.log)
+		   p.mu.Unlock()
+		   log.Debugf("slot:%d,filledSlot:%d",p.slot+1,p.logLength)
         }
     }
 }
@@ -425,7 +434,11 @@ func (p *Paxos) HandleRecoveryRequest(m RecoveryRequest) {
     response := RecoveryResponse{
         Log: make([]RecoveryLogEntry, 0), // 配列として初期化
     }
-    for _, slot := range m.MissingSlots {
+	log.Debugf("%v",m)
+	p.mu.Lock()
+	p.logLength = len(p.log)
+	p.mu.Unlock()
+    for slot := m.LastSlots+1;slot<p.logLength;slot++ {
         if e, exists := p.log[slot]; exists {
             response.Log = append(response.Log, RecoveryLogEntry{
                 Slot:    slot,
@@ -434,7 +447,20 @@ func (p *Paxos) HandleRecoveryRequest(m RecoveryRequest) {
             })
         }
     }
-   // log.Debugf("%s, recovered entries: %d", m.ID, len(response.Log))
+    log.Debugf("%s, recovered entries: %d", m.ID, len(response.Log))
     p.Send(m.ID, response)
-   // log.Debugf("Sent RecoveryResponse")
+    log.Debugf("Sent RecoveryResponse")
+}
+
+func (p *Paxos)handleCrash(crashTime int){
+	p.mu.Lock()
+	p.logLength = len(p.log)
+	p.mu.Unlock()
+	log.Infof("Replica %s crash for %ds,logLength:%d", p.ID(), crashTime,p.logLength)
+	var m RecoveryRequest
+	m.LastSlots = p.logLength - 1
+	m.ID = p.ID()
+	time.Sleep(time.Duration(crashTime) * time.Second)
+	p.Send(p.ballot.ID(),m)
+	log.Debugf("send recovery request:%v",m)
 }
