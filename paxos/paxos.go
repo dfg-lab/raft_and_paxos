@@ -2,8 +2,8 @@ package paxos
 
 import (
 	"strconv"
-	"time"
 	"sync"
+	"time"
 
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
@@ -39,7 +39,7 @@ type Paxos struct {
 	ReplyWhenCommit bool
 
 	logLength int
-	mu sync.Mutex
+	mu        sync.Mutex
 }
 
 // NewPaxos creates new paxos instance
@@ -101,12 +101,13 @@ func (p *Paxos) HandleRequest(r paxi.Request) {
 	}
 }
 
-func(p *Paxos) SendP1a(){
-	for i:=0;i<100;i++{
+func (p *Paxos) SendP1a() {
+	for i := 0; i < 100; i++ {
 		p.P1a()
-		time.Sleep(100*time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 }
+
 // P1a starts phase 1 prepare
 func (p *Paxos) P1a() {
 	if p.active {
@@ -131,9 +132,10 @@ func (p *Paxos) P2a(r *paxi.Request) {
 	}
 	p.log[p.slot].quorum.ACK(p.ID())
 	m := P2a{
-		Ballot:  p.ballot,
-		Slot:    p.slot,
-		Command: r.Command,
+		Ballot:   p.ballot,
+		Slot:     p.slot,
+		Command:  r.Command,
+		Commited: p.execute,
 	}
 	if paxi.GetConfig().Thrifty {
 		p.MulticastQuorum(paxi.GetConfig().N()/2+1, m)
@@ -226,9 +228,10 @@ func (p *Paxos) HandleP1b(m P1b) {
 				p.log[i].quorum = paxi.NewQuorum()
 				p.log[i].quorum.ACK(p.ID())
 				p.Broadcast(P2a{
-					Ballot:  p.ballot,
-					Slot:    i,
-					Command: p.log[i].command,
+					Ballot:   p.ballot,
+					Slot:     i,
+					Command:  p.log[i].command,
+					Commited: p.execute,
 				})
 			}
 			// propose new commands
@@ -247,7 +250,7 @@ func (p *Paxos) HandleP2a(m P2a) {
 	if m.Ballot >= p.ballot {
 		p.ballot = m.Ballot
 		p.active = false
-//log.Debugf("%d,%d",m.Slot,p.slot)
+		//log.Debugf("%d,%d",m.Slot,p.slot)
 		// if m.Slot > p.logLength {
 		// 	missingSlots := []int{}
 		// 	for s := p.logLength; s < m.Slot; s++ {
@@ -255,7 +258,7 @@ func (p *Paxos) HandleP2a(m P2a) {
 		// 			missingSlots = append(missingSlots, s)
 		// 		}
 		// 	}
-	
+
 		// 	if len(missingSlots) > 0 {
 		// 		//log.Debugf("%d",len(missingSlots))
 		// 		p.Send(m.Ballot.ID(), RecoveryRequest{
@@ -287,9 +290,9 @@ func (p *Paxos) HandleP2a(m P2a) {
 			}
 		}
 		p.mu.Lock()
-		p.logLength = len(p.log)
+		p.logLength = m.Commited
 		p.mu.Unlock()
-		log.Debugf("slot:%d,filledSlot:%d",p.slot+1,p.logLength)
+		log.Debugf("slot:%d,filledSlot:%d", p.execute, p.logLength)
 	}
 
 	p.Send(m.Ballot.ID(), P2b{
@@ -322,7 +325,7 @@ func (p *Paxos) HandleP2b(m P2b) {
 	if m.Ballot.ID() == p.ID() && m.Ballot == p.log[m.Slot].ballot {
 		p.log[m.Slot].quorum.ACK(m.ID)
 		if p.Q2(p.log[m.Slot].quorum) {
-			for i:=p.execute;i<=m.Slot;i++{
+			for i := p.execute; i <= m.Slot; i++ {
 				p.log[i].commit = true
 			}
 			//p.log[m.Slot].commit = true
@@ -413,54 +416,55 @@ func (p *Paxos) forward() {
 
 // HandleRecoveryResponse handles recovery responses and updates the log
 func (p *Paxos) HandleRecoveryResponse(m RecoveryResponse) {
-    //("Received RecoveryResponse with %d entries", len(m.Log))
-    for _, en := range m.Log {
-        if _, exists := p.log[en.Slot]; !exists {
-            p.log[en.Slot] = &entry{ // 必要に応じて変換
-                ballot:  en.Ballot,
-                command: en.Command,
-                commit:  true, 
-            }
-           // log.Debugf("Recovered slot %d", en.Slot)
-		   p.mu.Lock()
-		   p.logLength = len(p.log)
-		   p.mu.Unlock()
-		   log.Debugf("slot:%d,filledSlot:%d",p.slot+1,p.logLength)
-        }
-    }
+	//("Received RecoveryResponse with %d entries", len(m.Log))
+	for _, en := range m.Log {
+		if _, exists := p.log[en.Slot]; !exists {
+			p.log[en.Slot] = &entry{ // 必要に応じて変換
+				ballot:  en.Ballot,
+				command: en.Command,
+				commit:  true,
+			}
+			// log.Debugf("Recovered slot %d", en.Slot)
+			p.mu.Lock()
+			p.logLength = en.Commited
+			p.mu.Unlock()
+			log.Debugf("slot:%d,filledSlot:%d", p.execute, p.logLength)
+		}
+	}
 }
 
 func (p *Paxos) HandleRecoveryRequest(m RecoveryRequest) {
-    response := RecoveryResponse{
-        Log: make([]RecoveryLogEntry, 0), // 配列として初期化
-    }
-	log.Debugf("%v",m)
+	response := RecoveryResponse{
+		Log: make([]RecoveryLogEntry, 0), // 配列として初期化
+	}
+	log.Debugf("%v", m)
 	p.mu.Lock()
 	p.logLength = len(p.log)
 	p.mu.Unlock()
-    for slot := m.LastSlots+1;slot<p.logLength;slot++ {
-        if e, exists := p.log[slot]; exists {
-            response.Log = append(response.Log, RecoveryLogEntry{
-                Slot:    slot,
-                Ballot:  e.ballot,
-                Command: e.command,
-            })
-        }
-    }
-    log.Debugf("%s, recovered entries: %d", m.ID, len(response.Log))
-    p.Send(m.ID, response)
-    log.Debugf("Sent RecoveryResponse")
+	for slot := m.LastSlots + 1; slot < p.logLength; slot++ {
+		if e, exists := p.log[slot]; exists {
+			response.Log = append(response.Log, RecoveryLogEntry{
+				Slot:     slot,
+				Ballot:   e.ballot,
+				Command:  e.command,
+				Commited: p.execute,
+			})
+		}
+	}
+	log.Debugf("%s, recovered entries: %d", m.ID, len(response.Log))
+	p.Send(m.ID, response)
+	log.Debugf("Sent RecoveryResponse")
 }
 
-func (p *Paxos)handleCrash(crashTime int){
+func (p *Paxos) handleCrash(crashTime int) {
 	p.mu.Lock()
 	p.logLength = len(p.log)
 	p.mu.Unlock()
-	log.Infof("Replica %s crash for %ds,logLength:%d", p.ID(), crashTime,p.logLength)
+	log.Infof("Replica %s crash for %ds,logLength:%d", p.ID(), crashTime, p.logLength)
 	var m RecoveryRequest
 	m.LastSlots = p.logLength - 1
 	m.ID = p.ID()
 	time.Sleep(time.Duration(crashTime) * time.Second)
-	p.Send(p.ballot.ID(),m)
-	log.Debugf("send recovery request:%v",m)
+	p.Send(p.ballot.ID(), m)
+	log.Debugf("send recovery request:%v", m)
 }

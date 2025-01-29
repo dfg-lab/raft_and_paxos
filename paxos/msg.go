@@ -50,9 +50,10 @@ func (m P1b) String() string {
 
 // P2a accept message
 type P2a struct {
-	Ballot  paxi.Ballot
-	Slot    int
-	Command paxi.Command
+	Ballot   paxi.Ballot
+	Slot     int
+	Command  paxi.Command
+	Commited int
 }
 
 func (m P2a) String() string {
@@ -83,15 +84,16 @@ func (m P3) String() string {
 
 type RecoveryRequest struct {
 	LastSlots int
-	ID           paxi.ID
+	ID        paxi.ID
 }
 
 type RecoveryLogEntry struct {
-    Slot    int
-    Ballot  paxi.Ballot
-    Command paxi.Command
+	Slot     int
+	Ballot   paxi.Ballot
+	Command  paxi.Command
+	Commited int
 }
 
 type RecoveryResponse struct {
-    Log []RecoveryLogEntry
+	Log []RecoveryLogEntry
 }
